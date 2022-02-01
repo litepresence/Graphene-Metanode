@@ -234,5 +234,14 @@ see LICENSE.txt
 # See Also
 
 www.litepresence.com
+
 www.pbsa.info
+
 www.github.com/squidKid-deluxe
+
+www.hummingbot.org
+
+# Tip Cup
+
+(Bitshares) `litepresence1` 1.2.743179
+(Bitshares) `squidkid-deluxe256` 1.2.1798534
