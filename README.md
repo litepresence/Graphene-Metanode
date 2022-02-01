@@ -1,13 +1,15 @@
 # Installation
 
 
-`pip3 install virtualenv
+```bash
+pip3 install virtualenv
 virtualenv <name of env>
 . <name of env>/bin/activate
 pip3 install websocket-client requests secp256k1 ecdsa
-git clone github.com/litepresence/???
+git clone https://github.com/litepresence/Graphene-Metanode.git
+cd Graphene-Metanode
 python3 graphene_metanode_server.py
-`
+```
 
 # Abstract
 
