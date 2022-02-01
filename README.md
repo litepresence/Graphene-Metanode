@@ -138,13 +138,13 @@ from all responding nodes the user has provided upon configuration
 
 GrapheneConstants is a class that can be instantiated with or without a chain specified.
 Without, it gives access to all constants that are not chain specific, eg.
-
-    from graphene_constants import GrapheneConstants
-    constants = GrapheneConstants()
-    print(constants.metanode.MAVENS)
-    print(constants.core.BASE58)
-    print(constants.signing.KILL_OR_FILL)
-
+```python
+from graphene_constants import GrapheneConstants
+constants = GrapheneConstants()
+print(constants.metanode.MAVENS)
+print(constants.core.BASE58)
+print(constants.signing.KILL_OR_FILL)
+```
 The above constants should be adjusted with caution.   Some of the metanode constants involve a balancing act between your system resources and your latency.  Effort has been made to provide sensible, system safe metanode constants.
 
 The user only needs to ajust chain specific constants;
@@ -154,10 +154,10 @@ The user only needs to ajust chain specific constants;
 These are to be edited in file and saved. Default values are provided for simulation and testing.
 
 When specifying the chain you gain access to the chain specific constants, eg.
-
-    constants = GrapheneConstants("peerplays")
-    print(constants.chain.NODES, constants.chain.PAIRS, constants.chain.ACCOUNT)
-
+```python
+constants = GrapheneConstants("peerplays")
+print(constants.chain.NODES, constants.chain.PAIRS, constants.chain.ACCOUNT)
+```
 ### graphene_rpc.py
 
 These are public api calls to nodes in the network.
@@ -169,32 +169,32 @@ from a centralized exchange.   A unit test is included for this module, to test 
 `python3 graphene_rpc.py`
 
 This module can be imported as:
-
-    from graphene_rpc import GrapheneRemoteProcedureCall
-    from graphene_constants import GrapheneConstants
-    rpc = GrapheneRemoteProcedureCall(GrapheneConstants("peerplays"))
-    print(rpc.last)
-    print(rpc.book)
-    print(rpc.history)
-    etc...
-
+```python
+from graphene_rpc import GrapheneRemoteProcedureCall
+from graphene_constants import GrapheneConstants
+rpc = GrapheneRemoteProcedureCall(GrapheneConstants("peerplays"))
+print(rpc.last)
+print(rpc.book)
+print(rpc.history)
+# etc...
+```
 ### graphene_sql.py
 
 This module sets up a new database for one chain, for one account, and for multiple trading pairs.  It creates space for all pertinent data using multiple sqlite tables with rows columns containing json:
 
 It also provides a safe read/write wrapper used by other modules formating the database rows and columns instead as a python a list of dicts.
+```python
+dml = {
+   "query": f"""
+   SELECT * FROM {table}
+   """,
+   "values": tuple(),
+}
+# ==========================================================================
+print(sql.execute([dml]))
 
-    dml = {
-        "query": f"""
-        SELECT * FROM {table}
-        """,
-        "values": tuple(),
-    }
-    # ==========================================================================
-    print(sql.execute([dml]))
-
-    >>> [{"col1":0 "col2":1}, {"col1":3 "col2":4}]
-
+>>> [{"col1":0 "col2":1}, {"col1":3 "col2":4}]
+```
  unit test is included for this module, to build a test database:
 
 `python3 graphene_sql.py`
