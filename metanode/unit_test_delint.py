@@ -53,9 +53,7 @@ def auto_enumerate(name):
     final_data = []
     for line in data:
         if ", _  in enumerate(" in line and "):" in line:
-            line = line.replace(" in range(len(", ", _  in enumerate(").replace(
-                ")):", "):"
-            )
+            line = line.replace(" in range(len(", ", _  in enumerate(").replace(")):", "):")
             total += 1
         final_data.append(line)
     final_data = "\n".join(final_data).strip("\n") + "\n"
@@ -68,6 +66,9 @@ def auto_enumerate(name):
 
 
 def auto_broad_except(name):
+    """
+    convert 'except:' to 'except Exception:'
+    """
 
     with open(name, "r") as handle:
         data = handle.read()
@@ -91,15 +92,18 @@ def auto_broad_except(name):
 
 
 def auto_double_line_break(name):
+    """
+    Remove extra line breaks
+    """
 
     with open(name, "r") as handle:
         data = handle.read()
         handle.close()
     total = 0
     for _ in range(3):
-        data_split = data.split("\n\n\n")
-        data = "\n\n".join(data_split)
-        total += len(data_split)-1
+        data_split = data.split("\n\n")
+        data = "\n".join(data_split)
+        total += len(data_split) - 1
     with open(name, "w") as handle:
         handle.write(data)
         handle.close()
@@ -127,7 +131,7 @@ def main():
         choice = 1
     choice = int(choice)
     disabled = ""
-    if choice in [1, 3]:
+    if choice in {1, 3}:
         disabled = "--enable=all --disable="
         for item in DISABLE:
             disabled += item + ","
@@ -145,7 +149,7 @@ def main():
     for name in pythons:
         auto_double_line_break(name)
     # For every file in that list:
-    if choice in [1, 2, 5]:
+    if choice in {1, 2, 5}:
         for name in pythons:
             # Print the script we are blacking.
             print("Blacking script:", name)
@@ -159,7 +163,7 @@ def main():
         auto_enumerate(name)
     for name in pythons:
         auto_broad_except(name)
-    if choice in [1, 2, 3, 4]:
+    if choice in {1, 2, 3, 4}:
         for name in pythons:
             # Print the script we are blacking.
             print("Pylinting script:", name)

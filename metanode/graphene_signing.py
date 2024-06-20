@@ -17,7 +17,6 @@ CONCISE GRAPHENE SERIALIZATION AND ECDSA TO AUTHENTICATE / BUY / SELL / CANCEL
 h/t @xeroc and other contiributors
 most of this script is distilled from pybitshares (MIT)
 """
-
 # STANDARD MODULES
 import os
 from binascii import hexlify  # binary text to hexidecimal
@@ -41,9 +40,9 @@ from secp256k1 import ffi as secp256k1_ffi  # compiled ffi object
 from secp256k1 import lib as secp256k1_lib  # library
 
 # GRAPHENE MODULES
-# ~ *soon* from hummingbot.connector.exchange.graphene.
-from graphene_constants import GrapheneConstants
-from graphene_utils import from_iso_date, it, trace
+from metanode.graphene_constants import GrapheneConstants
+from metanode.graphene_utils import from_iso_date, it, trace
+
 
 # GLOBAL CONSTANTS
 CONSTANTS = GrapheneConstants()
@@ -74,8 +73,7 @@ class ObjectId:
                 assert CONSTANTS.core.TYPES[type_verify] == int(bbb), (
                     # except raise error showing mismatch
                     "Object id does not match object type! "
-                    + "Excpected %d, got %d"
-                    % (CONSTANTS.core.TYPES[type_verify], int(bbb))
+                    + "Expected %d, got %d" % (CONSTANTS.core.TYPES[type_verify], int(bbb))
                 )
         else:
             raise Exception("Object id is invalid")
@@ -180,9 +178,7 @@ class Optional:
     def __bytes__(self):
         if not bool(self.data):
             return bytes(Uint8(0))
-        return (
-            bytes(Uint8(1)) + bytes(self.data) if bytes(self.data) else bytes(Uint8(0))
-        )
+        return bytes(Uint8(1)) + bytes(self.data) if bytes(self.data) else bytes(Uint8(0))
 
     def __str__(self):
         return str(self.data)
@@ -464,8 +460,7 @@ def verify_message(message, signature):
     # ecdsa.PublicKey with additional functions to serialize
     # in uncompressed and compressed formats
     pub = secp256k1_PublicKey(
-        flags=secp256k1_lib.SECP256K1_CONTEXT_VERIFY
-        | secp256k1_lib.SECP256K1_CONTEXT_SIGN
+        flags=secp256k1_lib.SECP256K1_CONTEXT_VERIFY | secp256k1_lib.SECP256K1_CONTEXT_SIGN
     )
     # recover raw signature
     sig = pub.ecdsa_recoverable_deserialize(signature[1:], recover_parameter)
@@ -728,9 +723,7 @@ class SignedTransaction(GrapheneObject):
             if "operations" in kwargs:
                 opklass = Operation  # self.get_operation_klass()
                 if all(not isinstance(a, opklass) for a in kwargs["operations"]):
-                    kwargs["operations"] = Array(
-                        [opklass(a) for a in kwargs["operations"]]
-                    )
+                    kwargs["operations"] = Array([opklass(a) for a in kwargs["operations"]])
                 else:
                     kwargs["operations"] = Array(kwargs["operations"])
             super().__init__(
@@ -839,14 +832,10 @@ class PublicKey(Address):
         Derive compressed public key
         """
         order = ecdsa_SECP256k1.generator.order()
-        point = ecdsa_VerifyingKey.from_string(
-            bytes(self), curve=ecdsa_SECP256k1
-        ).pubkey.point
+        point = ecdsa_VerifyingKey.from_string(bytes(self), curve=ecdsa_SECP256k1).pubkey.point
         x_str = ecdsa_util.number_to_string(point.x(), order)
         # y_str = ecdsa_util.number_to_string(point.y(), order)
-        compressed = hexlify(bytes(chr(2 + (point.y() & 1)), "ascii") + x_str).decode(
-            "ascii"
-        )
+        compressed = hexlify(bytes(chr(2 + (point.y() & 1)), "ascii") + x_str).decode("ascii")
         return compressed
 
     def un_compressed(self):
@@ -906,9 +895,7 @@ class PrivateKey(PublicKey):
         self._pubkeyhex, self._pubkeyuncompressedhex = self.compressedpubkey()
         self.pubkey = PublicKey(self._pubkeyhex, prefix=prefix)
         self.uncompressed = PublicKey(self._pubkeyuncompressedhex, prefix=prefix)
-        self.uncompressed.address = Address(
-            pubkey=self._pubkeyuncompressedhex, prefix=prefix
-        )
+        self.uncompressed.address = Address(pubkey=self._pubkeyuncompressedhex, prefix=prefix)
         self.address = Address(pubkey=self._pubkeyhex, prefix=prefix)
 
     def compressedpubkey(self):
@@ -916,17 +903,13 @@ class PrivateKey(PublicKey):
         Derive uncompressed public key
         """
         secret = unhexlify(repr(self.wif))
-        order = ecdsa_SigningKey.from_string(
-            secret, curve=ecdsa_SECP256k1
-        ).curve.generator.order()
+        order = ecdsa_SigningKey.from_string(secret, curve=ecdsa_SECP256k1).curve.generator.order()
         point = ecdsa_SigningKey.from_string(
             secret, curve=ecdsa_SECP256k1
         ).verifying_key.pubkey.point
         x_str = ecdsa_util.number_to_string(point.x(), order)
         y_str = ecdsa_util.number_to_string(point.y(), order)
-        compressed = hexlify(chr(2 + (point.y() & 1)).encode("ascii") + x_str).decode(
-            "ascii"
-        )
+        compressed = hexlify(chr(2 + (point.y() & 1)).encode("ascii") + x_str).decode("ascii")
         uncompressed = hexlify(chr(4).encode("ascii") + x_str + y_str).decode("ascii")
         return [compressed, uncompressed]
 

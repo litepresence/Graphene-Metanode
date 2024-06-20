@@ -13,12 +13,12 @@ GLOBAL CONSTANTS AND USER CONFIGURATION FOR DEX CONNECTIVITY
 """
 
 # STANDARD MODULES
+import os
 from decimal import Decimal
 from random import randint
 
 # GRAPHENE MODULES
-# ~ *soon* from hummingbot.connector.exchange.graphene.
-from graphene_utils import assets_from_pairs, invert_pairs, sls, it
+from metanode.graphene_utils import assets_from_pairs, invert_pairs, it, sls
 
 
 class GrapheneConstants:
@@ -37,7 +37,7 @@ class GrapheneConstants:
             # constants.chain.NODES
             # constants.chain.PAIRS
             # constants.chain.ACCOUNT
-    and then passed through instantiated class objects as self.constants
+    and then passed through instantiated class objects as CONSTANTS
     """
 
     def __init__(self, chain_name=None):
@@ -45,34 +45,26 @@ class GrapheneConstants:
         this requires no user configuration,
         advanced might configure a testnet or additional graphene based blockchain here
         """
-        chains = {
+        self.chains = {
             "peerplays": {
                 "core": "PPY",
                 "config": PeerplaysConfig,
-                "id": (
-                    "6b6b5f0ce7a36d323768e534f3edb41c6d6332a541a95725b98e28d140850134"
-                ),
+                "id": "6b6b5f0ce7a36d323768e534f3edb41c6d6332a541a95725b98e28d140850134",
             },
             "peerplays testnet": {
                 "core": "TEST",
                 "config": PeerplaysTestnetConfig,
-                "id": (
-                    "7c1c72eb738b3ff1870350f85daca27e2d0f5dd25af27df7475fbd92815e421e"
-                ),
+                "id": "7c1c72eb738b3ff1870350f85daca27e2d0f5dd25af27df7475fbd92815e421e",
             },
             "bitshares": {
                 "core": "BTS",
                 "config": BitsharesConfig,
-                "id": (
-                    "4018d7844c78f6a6c41c6a552b898022310fc5dec06da467ee7905a8dad512c8"
-                ),
+                "id": "4018d7844c78f6a6c41c6a552b898022310fc5dec06da467ee7905a8dad512c8",
             },
             "bitshares testnet": {
                 "core": "TEST",
                 "config": BitsharesTestnetConfig,
-                "id": (
-                    "39f5e2ede1f8bc1a3a54a7914414e3779e33193f1f5693510e73cb7a87617447"
-                ),
+                "id": "39f5e2ede1f8bc1a3a54a7914414e3779e33193f1f5693510e73cb7a87617447",
             },
             # ~ "rudex": {
             # ~ "core": "GPH",
@@ -91,7 +83,7 @@ class GrapheneConstants:
         }
         # instantiate hummingbot and graphene core constants
         self.core = CoreConstants
-        self.core.CHAINS = list(chains.keys())
+        self.core.CHAINS = list(self.chains.keys())
         # instantiate user configuration for public and private api connectivity
         self.metanode = MetanodeConfig
         self.signing = SigningConfig
@@ -99,21 +91,41 @@ class GrapheneConstants:
         # normalize user inputs derive some constants that will prove useful later
         # constants derived at instantiation still formatted upper `constants.chain.XXX`
         if chain_name is not None:
-            self.chain = chains[chain_name.lower()]["config"]
+            self.chain = self.chains[chain_name.lower()]["config"]
             self.chain.NAME = chain_name.lower()
-            self.chain.CORE = chains[self.chain.NAME]["core"].upper()
-            self.chain.ID = chains[self.chain.NAME]["id"]
+            self.chain.CORE = self.chains[self.chain.NAME]["core"].upper()
+            self.chain.ID = self.chains[self.chain.NAME]["id"]
             self.chain.NODES = [node.lower() for node in sls(self.chain.NODES)]
             self.chain.PAIRS = [pair.upper() for pair in sls(self.chain.PAIRS)]
             # filter out duplicate inverted pairs
             self.chain.PAIRS = [
                 i for i in self.chain.PAIRS if i not in invert_pairs(self.chain.PAIRS)
             ]
-            self.chain.INVERT_PAIRS = invert_pairs(self.chain.PAIRS)
+            self.chain.INVERTED_PAIRS = invert_pairs(self.chain.PAIRS)
             self.chain.ASSETS = assets_from_pairs(self.chain.PAIRS)
-            self.chain.DATABASE = (
-                "database/" + self.chain.NAME.replace(" ", "_") + ".db"
+            self.chain.CORE_PAIRS = [
+                i
+                for i in [
+                    self.chain.CORE + "-" + asset
+                    for asset in self.chain.ASSETS
+                    if asset != self.chain.CORE
+                ]
+                if i not in self.chain.PAIRS and i not in self.chain.INVERTED_PAIRS
+            ]
+            self.chain.INVERTED_CORE_PAIRS = invert_pairs(self.chain.CORE_PAIRS)
+            self.chain.ALL_PAIRS = (
+                self.chain.PAIRS
+                + self.chain.CORE_PAIRS
+                + self.chain.INVERTED_PAIRS
+                + self.chain.INVERTED_CORE_PAIRS
             )
+            self.chain.DATABASE = (
+                self.core.PATH
+                + "/database/"
+                + self.chain.NAME.replace(" ", "_")
+                + ".db"
+            )
+            self.DATABASE_FOLDER = self.core.PATH + "/database"
             self.chain.TITLE = self.chain.NAME.title()
             if not hasattr(self.chain, "PREFIX"):
                 self.chain.PREFIX = self.chain.CORE
@@ -128,7 +140,7 @@ class CoreConstants:
     """
 
     # about 75 years in future; used for expiration date of limit orders
-    END_OF_TIME = 4 * 10 ** 9
+    END_OF_TIME = 4 * 10**9
     # membership_expiration_date is set to this date if lifetime member
     LTM = "2106-02-07T06:28:15"
     # ISO8601 time format; 'graphene time'
@@ -147,7 +159,9 @@ class CoreConstants:
         "limit_order": 7,
     }  # 1.2.x  # 1.3.x  # 1.7.x
     # base58 encoding and decoding; this is alphabet defined as bytes
-    # ~ BASE58 = "".join([i for i in string.digits + string.ascii_letters if i not in "Il0O"]).encode()
+    # ~ BASE58 = "".join(
+    # ~ [i for i in string.digits + string.ascii_letters if i not in "Il0O"]
+    # ~ ).encode()
     # ~ print(b"123456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ")
     # ~ print(BASE58)
     # ~ # hex encoding and decoding
@@ -158,12 +172,13 @@ class CoreConstants:
     # hex encoding and decoding
     HEXDIGITS = "0123456789abcdefABCDEF"
     # numerical constants
-    GRAPHENE_MAX = int(10 ** 15)
+    GRAPHENE_MAX = int(10**15)
     DECIMAL_NIL = Decimal(1) / GRAPHENE_MAX
     DECIMAL_NAN = Decimal("nan")
     DECIMAL_0 = Decimal(0)
     DECIMAL_SATOSHI = Decimal(0.00000001)
     DECIMAL_SIXSIG = Decimal(0.999999)
+    PATH = os.path.dirname(os.path.abspath(__file__))
 
 
 class MetanodeConfig:
@@ -271,8 +286,6 @@ class SigningConfig:
     # NOTE batch transactions are currently disable
     # so this parameter is moot at the hummingbot level
     LIMIT = 20
-    # default True to execute order in primary script process
-    JOIN = True
     # ignore orders value less than ~DUST core in value; 0 to disable
     DUST = 0
     # True = heavy print output
@@ -318,33 +331,44 @@ class BitsharesConfig:
     configuration details specific to bitshares mainnet
     """
 
-    ACCOUNT = ""
+    ACCOUNT = "litepresence1"
     NODES = [
         "wss://api.bts.mobi/wss",
-        "wss://api-us.61bts.com/wss",
-        "wss://cloud.xbts.io/ws",
-        "wss://api.dex.trading/wss",
         "wss://eu.nodes.bitshares.ws/ws",
-        "wss://api.pindd.club/ws",
-        "wss://dex.iobanker.com/ws",
+        "wss://cloud.xbts.io/wss",
+        "wss://dex.iobanker.com/wss",
+        "wss://bts.mypi.win/wss",
+        "wss://node.xbts.io/wss",
         "wss://public.xbts.io/ws",
-        "wss://node.xbts.io/ws",
-        "wss://node.market.rudex.org/ws",
-        "wss://nexus01.co.uk/ws",
-        "wss://api-bts.liondani.com/ws",
-        "wss://api.bitshares.bhuz.info/wss",
-        "wss://btsws.roelandp.nl/ws",
-        "wss://hongkong.bitshares.im/ws",
-        "wss://node1.deex.exchange/wss",
-        "wss://api.cnvote.vip:888/wss",
-        "wss://bts.open.icowallet.net/ws",
-        "wss://api.weaccount.cn/ws",
-        "wss://api.61bts.com",
-        "wss://api.btsgo.net/ws",
-        "wss://bitshares.bts123.cc:15138/wss",
+        "wss://btsws.roelandp.nl/wss",
         "wss://singapore.bitshares.im/wss",
     ]
-    PAIRS = ["BTS-HONEST", "BTS-HONEST.USD", "HONEST.XAU-CNY"]
+    # [
+    #     "wss://api.bts.mobi/wss",
+    #     "wss://api-us.61bts.com/wss",
+    #     "wss://cloud.xbts.io/ws",
+    #     "wss://api.dex.trading/wss",
+    #     "wss://eu.nodes.bitshares.ws/ws",
+    #     "wss://api.pindd.club/ws",
+    #     "wss://dex.iobanker.com/ws",
+    #     "wss://public.xbts.io/ws",
+    #     "wss://node.xbts.io/ws",
+    #     "wss://node.market.rudex.org/ws",
+    #     "wss://nexus01.co.uk/ws",
+    #     "wss://api-bts.liondani.com/ws",
+    #     "wss://api.bitshares.bhuz.info/wss",
+    #     "wss://btsws.roelandp.nl/ws",
+    #     "wss://hongkong.bitshares.im/ws",
+    #     "wss://node1.deex.exchange/wss",
+    #     "wss://api.cnvote.vip:888/wss",
+    #     "wss://bts.open.icowallet.net/ws",
+    #     "wss://api.weaccount.cn/ws",
+    #     "wss://api.61bts.com",
+    #     "wss://api.btsgo.net/ws",
+    #     "wss://bitshares.bts123.cc:15138/wss",
+    #     "wss://singapore.bitshares.im/wss",
+    # ]
+    PAIRS = ["HONEST.USD-HONEST.BTC"]
 
 
 class BitsharesTestnetConfig:
@@ -413,8 +437,6 @@ def unit_test():
     """
     test class inheritance
     """
-    # FIXME state what is being printed
-    # chain agnostic constants, eg.
     constants = GrapheneConstants()
     dispatch = {str(idx): chain for idx, chain in enumerate(constants.core.CHAINS)}
     for key, value in dispatch.items():
@@ -431,7 +453,7 @@ def unit_test():
     constants = GrapheneConstants(chain)
     print(constants.chain.NODES)
     print(constants.chain.PAIRS)
-    print(constants.chain.INVERT_PAIRS)
+    print(constants.chain.INVERTED_PAIRS)
     print(constants.chain.ASSETS)
     print(constants.chain.CORE)
     print(constants.chain.PREFIX)
@@ -440,5 +462,4 @@ def unit_test():
 
 
 if __name__ == "__main__":
-
     unit_test()

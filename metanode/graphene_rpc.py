@@ -2,7 +2,7 @@
 # DISABLE SELECT PYLINT TESTS
 # pylint: disable=import-error, broad-except, bad-continuation, line-too-long
 # pylint: disable=too-many-locals, too-many-public-methods, too-many-function-args
-# pylint: disable=too-many-lines
+# pylint: disable=too-many-lines, method-hidden
 r"""
  ╔════════════════════════════════════════════════════╗
  ║ ╔═╗╦═╗╔═╗╔═╗╦ ╦╔═╗╔╗╔╔═╗  ╔╦╗╔═╗╔╦╗╔═╗╔╗╔╔═╗╔╦╗╔═╗ ║
@@ -14,21 +14,30 @@ GRAPHENE BASE RPC
 ~
 REMOTE PROCEDURE CALLS VIA PUBLIC NODE WEBSOCKET API
 """
-
 # STANDARD MODULES
 import json
+import threading
 import time
+import traceback
 from random import shuffle
 
 # THIRD PARTY MODULES
-from websocket import create_connection as wss_connect
+import websocket
 
 # GRAPHENE MODULES
 # ~ *soon* from hummingbot.connector.exchange.graphene.
-from graphene_constants import GrapheneConstants
-from graphene_metanode_client import GrapheneTrustlessClient
-from graphene_utils import (blip, from_iso_date, invert_pairs, it, jprint,
-                            precision, to_iso_date)
+from metanode.graphene_constants import GrapheneConstants
+from metanode.graphene_metanode_client import GrapheneTrustlessClient
+from metanode.graphene_utils import (
+    blip,
+    from_iso_date,
+    invert_pairs,
+    it,
+    jprint,
+    precision,
+    to_iso_date,
+)
+from websocket import create_connection as wss_connect
 
 LOGO = """
 ╔═╗╦═╗╔═╗╔═╗╦ ╦╔═╗╔╗╔╔═╗  ╔╦╗╔═╗╔╦╗╔═╗╔╗╔╔═╗╔╦╗╔═╗
@@ -36,25 +45,162 @@ LOGO = """
 ╚═╝╩╚═╩ ╩╩  ╩ ╩╚═╝╝╚╝╚═╝  ╩ ╩╚═╝ ╩ ╩ ╩╝╚╝╚═╝═╩╝╚═╝
 DECENTRALIZED EXCHANGE USER STREAM AND ORDER BOOKS
 """
+DEV = False
+
+
+class RemoteProcedureSession:
+    """
+    Create a websocket app for callbacks
+    """
+
+    def __init__(self, nodes, retries):
+        self.nodes = nodes
+        self.num_retries = retries
+        self.wsa = None
+        self.msg = None
+        self.keepalive = None
+        self.run_event = None
+
+    def on_message(self, _, reply):
+        """
+        This method is called by the websocket connection on every message that is
+        received.
+        If we receive a ``notice``, we hand over post-processing and signalling of
+        events to ``process_notice``.
+        """
+        self.msg = str(reply)
+        data = {}
+        try:
+            data = json.loads(reply, strict=False)
+        except ValueError:
+            raise ValueError("API node returned invalid format. Expected JSON!")
+        if DEV:
+            print(data)
+        if data.get("result") is not None or data.get("method") == "notice":
+            try:
+                if data["result"][0]["id"] != "2.8.0":
+                    self.close()
+            except Exception:
+                self.close()
+
+    def on_error(self, _, error):
+        """Called on websocket errors."""
+        print("Websocket error:", error)
+        print("last message:", self.msg)
+
+    def on_close(self, *_):
+        """Called when websocket connection is closed."""
+        print(f"Closing WebSocket connection")
+        print("last message:", self.msg)
+
+    def on_open(self, query):
+        """
+        start the keepalive and send the query
+        """
+        self.keepalive = threading.Thread(target=self._ping)
+        self.keepalive.start()
+        if DEV:
+            print("Sending query")
+        self.wsa.send(query.encode("utf8"))
+        if DEV:
+            print("Sent query")
+
+    def close(self):
+        """Closes the websocket connection and waits for the ping thread to close."""
+        self.wsa.close()
+        self.run_event.set()
+
+    def _ping(self):
+        while not self.run_event.wait(10):
+            self.wsa.send(
+                json.dumps(
+                    {
+                        "method": "call",
+                        "params": ["database", "get_objects", [["2.8.0"]]],
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                    }
+                )
+            )
+
+    def wss_query(self, params: list = None, client_order_id: int = 1):
+        """
+        This method is used to run the websocket app continuously.
+        It will execute callbacks as defined and try to stay connected with the provided
+        APIs
+        """
+        self.run_event = threading.Event()
+        query = json.dumps(
+            {
+                "method": "call",
+                # params format is ["location", "object", []]
+                "params": params,
+                "jsonrpc": "2.0",
+                # client order id is for listening for callback
+                "id": client_order_id,
+            }
+        )
+        if DEV:
+            print(query)
+        cnt = 0
+        self.wsa = None
+        while not self.run_event.is_set():
+            cnt += 1
+            try:
+                # If there is no connection, we have to create one and wait for it to connect
+                self.wsa = websocket.WebSocketApp(
+                    self.nodes[0],
+                    on_message=self.on_message,
+                    on_error=self.on_error,
+                    on_close=self.on_close,
+                    on_open=lambda _: self.on_open(query),
+                )
+                self.wsa.run_forever()
+            except websocket.WebSocketException as error:
+                if self.num_retries >= 0 and cnt > self.num_retries:
+                    raise Exception("NumRetriesReached")
+                sleeptime = cnt**2
+                if sleeptime:
+                    print(
+                        f"Lost connection to node during wsconnect(): {self.nodes[0]}"
+                        + f"\nRetrying in {sleeptime} seconds:"
+                        + str(error)
+                    )
+                    time.sleep(sleeptime)
+            except Exception as error:
+                print(f"{str(error)}\n\n{traceback.format_exc()}")
+        # print(type(self.msg))
+        data = json.loads(self.msg)
+        if params[1] != "broadcast_transaction_with_callback":
+            data = data["result"]
+        if DEV:
+            print(data)
+        return data
 
 
 class RemoteProcedureCall:
     """
     query method docstrings are derived from Bitshare doxygen docs
-    https://doxygen.bitshares.org/namespacegraphene_1_1app.html
+    https://doxygen.bitshares.org/namespacemetanode.graphene_1_1app.html
     all RemoteProcedureCall queries return json.loads()
     and post processed python objects
     """
 
-    def __init__(self, constants, nodes=None):
+    def __init__(self, constants, nodes=None, session=False):
         self.constants = constants
         self.metanode = GrapheneTrustlessClient(self.constants)
         self.nodes = nodes
+        self.printing = True
         if nodes is None:
             # ==========================================================================
             self.nodes = list(self.metanode.whitelist)  # DISCRETE SQL QUERY
             # ==========================================================================
-        self.connection = self.wss_handshake()
+        self.session = session
+        if session:
+            rps = RemoteProcedureSession(self.nodes, self.constants.signing.HANDSHAKE_TIMEOUT)
+            self.wss_query = rps.wss_query
+        else:
+            self.connection = self.wss_handshake()
 
     # WEBSOCKET SEND AND RECEIVE
     # ==================================================================================
@@ -65,7 +211,7 @@ class RemoteProcedureCall:
         # in the case of metanode we want to keep track of latency
         handshake = handshake_max = self.constants.signing.HANDSHAKE_TIMEOUT
         iteration = 0
-        while handshake >= handshake_max:
+        while handshake >= handshake_max and iteration < 10:
             iteration += 1
             # attempt to close open stale connection
             try:
@@ -79,39 +225,43 @@ class RemoteProcedureCall:
                 handshake = time.time() - start
             except Exception:
                 # ascending pause here prevents excess cpu on loss of internet
-                time.sleep(min(5, 1.01 ** iteration - 1))
+                time.sleep(min(5, 1.01**iteration - 1))
                 try:
                     self.connection.close()
                 except Exception:
                     pass
             # rotate the nodes list
             self.nodes.append(self.nodes.pop(0))
-
+        if iteration == 10:
+            raise RuntimeError("FAILED TO CONNECT, CHECK YOUR NODES")
         return self.connection
 
     def wss_query(self, params: list = None, client_order_id: int = 1) -> object:
         """
         this definition will place all remote procedure calls (RPC)
+        the logo refresh is also here
         """
-        print("\033c")
-        print(
-            it("yellow", LOGO),
-            it(
-                "red",
-                [
-                    self.constants.chain.NAME,
-                    self.constants.chain.ACCOUNT,
-                    self.constants.chain.PAIRS,
-                ],
-            ),
-            "\n",
-            it("green", self.nodes),
-            "\n",
-            it("orange", "rpc"),
-            self.nodes[0],
-            client_order_id,
-            params,
-        )
+        if self.printing:
+            if not DEV:
+                print("\033c")
+            print(
+                it("yellow", LOGO),
+                it(
+                    "red",
+                    [
+                        self.constants.chain.NAME,
+                        self.constants.chain.ACCOUNT,
+                        self.constants.chain.PAIRS,
+                    ],
+                ),
+                "\n",
+                it("green", self.nodes),
+                "\n",
+                it("orange", "rpc"),
+                self.nodes[0],
+                client_order_id,
+                params,
+            )
         if self.connection is None:
             self.connection = self.wss_handshake()
         for _ in range(10):
@@ -227,8 +377,7 @@ class RemoteProcedureCall:
             asset_name = metanode_objects[total["asset_id"]]["name"]
             balances[asset_name]["total"] = float(
                 precision(
-                    float(total["amount"])
-                    / 10 ** int(dict_assets[asset_name]["precision"]),
+                    float(total["amount"]) / 10 ** int(dict_assets[asset_name]["precision"]),
                     dict_assets[asset_name]["precision"],
                 )
             )
@@ -237,11 +386,18 @@ class RemoteProcedureCall:
             balances[asset_name]["tied"] = float(
                 precision(amount_tied, dict_assets[asset_name]["precision"])
             )
-            balances[asset_name]["free"] = float(
-                precision(
-                    balances[asset_name]["total"] - amount_tied,
-                    int(dict_assets[asset_name]["precision"]),
-                )
+            balances[asset_name]["free"] = max(
+                0,
+                (
+                    float(
+                        precision(
+                            balances[asset_name]["total"] - amount_tied,
+                            int(dict_assets[asset_name]["precision"]),
+                        )
+                        # less one quantum to mitigate float errors
+                    )
+                    - 1.0 / 10 ** int(dict_assets[asset_name]["precision"])
+                ),
             )
         # ~ balances = {
         # ~ "XXX": {
@@ -313,9 +469,7 @@ class RemoteProcedureCall:
             if float(price) == 0 and not self.constants.metanode.DEV:
                 raise ValueError("zero price in asks")
             volume = float(
-                precision(
-                    order_book["asks"][i]["quote"], int(cache["asset"]["precision"])
-                )
+                precision(order_book["asks"][i]["quote"], int(cache["asset"]["precision"]))
             )
             asks.append((price, volume))
         for i, _ in enumerate(order_book["bids"]):
@@ -323,9 +477,7 @@ class RemoteProcedureCall:
             if float(price) == 0 and not self.constants.metanode.DEV:
                 raise ValueError("zero price in bids")
             volume = float(
-                precision(
-                    order_book["bids"][i]["quote"], int(cache["asset"]["precision"])
-                )
+                precision(order_book["bids"][i]["quote"], int(cache["asset"]["precision"]))
             )
             bids.append((price, volume))
         return {"asks": asks, "bids": bids}
@@ -358,9 +510,7 @@ class RemoteProcedureCall:
         dynamic_assets = ["2.3." + asset.split(".")[-1] for asset in asset_ids]
         ret = self.wss_query(["database", "get_objects", [dynamic_assets]])
         return {
-            asset_id_to_name[asset["id"].replace("2.3", "1.3")]: int(
-                asset["current_supply"]
-            )
+            asset_id_to_name[asset["id"].replace("2.3", "1.3")]: int(asset["current_supply"])
             for asset in ret
         }
 
@@ -380,10 +530,7 @@ class RemoteProcedureCall:
         """
         returns True if user is lifetime member and eligible for 80% tx fee discountx
         """
-        return (
-            self.account_by_name()["membership_expiration_date"]
-            == self.constants.core.LTM
-        )
+        return self.account_by_name()["membership_expiration_date"] == self.constants.core.LTM
 
     def key_reference(self, public_key: str):
         """
@@ -422,9 +569,7 @@ class RemoteProcedureCall:
                 isinstance(ret[idx]["options"]["extensions"], dict)
                 and "taker_fee_percent" in ret[idx]["options"]["extensions"]
             ):
-                taker_fee = (
-                    float(ret[idx]["options"]["extensions"]["taker_fee_percent"]) / 100
-                )
+                taker_fee = float(ret[idx]["options"]["extensions"]["taker_fee_percent"]) / 100
             cache[asset]["fees"]["maker"] = market_fee
             cache[asset]["fees"]["taker"] = market_fee if taker_fee == 0 else taker_fee
         return cache
@@ -470,8 +615,6 @@ class RemoteProcedureCall:
             ],
         )
         history = []
-        # ~ FIXME feature: filter "my_trade_history" from this api ?
-        # ~ FIXME feature: flag if my trade was maker or taker here ?
         # ~ print(trade_history)
         # ~ [{'sequence': 183490,
         # ~ 'date': '2022-01-21T20:41:36',
@@ -487,7 +630,7 @@ class RemoteProcedureCall:
             if float(price) == 0 and not self.constants.metanode.DEV:
                 raise ValueError("zero price in history")
             amount = float(value["amount"])
-            history.append([unix, price, amount])
+            history.append([unix, price, amount, value["type"], value["sequence"]])
         # if not history and not CONSTANTS.metanode.DEV:
         #    raise ValueError("no history")
         return history
@@ -502,9 +645,7 @@ class RemoteProcedureCall:
         metanode_objects = dict(self.metanode.objects)  # DISCRETE SQL QUERY
         metanode_assets = dict(self.metanode.assets)  # DISCRETE SQL QUERY
         # ==============================================================================
-        ret = self.wss_query(
-            ["database", "get_full_accounts", [[account_name], "false"]]
-        )
+        ret = self.wss_query(["database", "get_full_accounts", [[account_name], "false"]])
         try:
             limit_orders = ret[0][1]["limit_orders"]
         except Exception:
@@ -558,23 +699,21 @@ class RemoteProcedureCall:
                     else:
                         base_precision = int(cache["asset"]["precision"])
                         quote_precision = int(cache["currency"]["precision"])
-                    base_amount /= 10 ** base_precision
-                    quote_amount /= 10 ** quote_precision
+                    base_amount /= 10**base_precision
+                    quote_amount /= 10**quote_precision
                     if base_id == cache["asset"]["id"]:
                         order_type = "SELL"
                         price = quote_amount / base_amount
-                        amount /= 10 ** base_precision
+                        amount /= 10**base_precision
                     else:
                         order_type = "BUY"
                         price = base_amount / quote_amount
-                        amount = (amount / 10 ** base_precision) / price
+                        amount = (amount / 10**base_precision) / price
                     orders.append(
                         {
                             "order_number": order["id"],
                             "market": pair,
-                            "amount": float(
-                                precision(amount, int(cache["asset"]["precision"]))
-                            ),
+                            "amount": float(precision(amount, int(cache["asset"]["precision"]))),
                             "base_amount": float(
                                 precision(base_amount, int(cache["asset"]["precision"]))
                             ),
@@ -585,7 +724,7 @@ class RemoteProcedureCall:
             all_open_orders[pair] = sorted(orders, key=lambda k: k["price"])
         return all_open_orders
 
-    def open_order_ids(self, pair):
+    def open_order_ids(self, pair=None):
         """
         return a list of open orders, for one account, in one market
         used to cancel all
@@ -606,12 +745,15 @@ class RemoteProcedureCall:
             limit_orders = ret[0][1]["limit_orders"]
         except Exception:
             limit_orders = []
-        market = [pair["currency_id"], pair["asset_id"]]
+        if pair is not None:
+            market = [pair["currency_id"], pair["asset_id"]]
+        else:
+            market = False
         orders = []
         for order in limit_orders:
             base_id = order["sell_price"]["base"]["asset_id"]
             quote_id = order["sell_price"]["quote"]["asset_id"]
-            if (base_id in market) and (quote_id in market):
+            if not market or (base_id in market) and (quote_id in market):
                 orders.append(order["id"])
         return orders
 
@@ -644,11 +786,20 @@ class RemoteProcedureCall:
         create_graphene = int(ret[0]["amount"])
         cancel_graphene = int(ret[1]["amount"])
         return {
-            "create": float(create_graphene) / 10 ** core_precision,
-            "cancel": float(cancel_graphene) / 10 ** core_precision,
+            "create": float(create_graphene) / 10**core_precision,
+            "cancel": float(cancel_graphene) / 10**core_precision,
             "create_graphene": create_graphene,
             "cancel_graphene": cancel_graphene,
         }
+
+    def list_assets(self, search):
+        return self.wss_query([
+            "database",
+            "list_assets",
+            [
+                search, 100
+            ]
+        ])
 
     # HISTORY API
     # ==================================================================================
@@ -702,7 +853,6 @@ class RemoteProcedureCall:
         account_id = str(self.metanode.account["id"])  # DISCRETE SQL QUERY
         pairs = dict(self.metanode.pairs)  # DISCRETE SQL QUERY
         # ==============================================================================
-
         metanode_fills = pairs[pair]["fills"]
         iteration = 0
         rpc_fills = []
@@ -720,18 +870,30 @@ class RemoteProcedureCall:
             # sort by user
             fills = [i for i in ret if i["op"]["account_id"] == account_id]
             for fill in fills:
+                if DEV:
+                    print(fill)
                 # base
                 base_id = fill["op"]["pays"]["asset_id"]
                 base_name = objects[base_id]["name"]
                 base_precision = int(objects[base_id]["precision"])
-                pays = float(fill["op"]["pays"]["amount"]) / 10 ** base_precision
+                pays = float(fill["op"]["pays"]["amount"]) / 10**base_precision
                 # quote
                 quote_id = fill["op"]["receives"]["asset_id"]
                 quote_name = objects[quote_id]["name"]
                 quote_precision = int(objects[quote_id]["precision"])
-                receives = (
-                    float(fill["op"]["receives"]["amount"]) / 10 ** quote_precision
-                )
+                receives = float(fill["op"]["receives"]["amount"]) / 10**quote_precision
+                # fee
+                fee = {"asset": quote_name, "amount": 0}
+                try:
+                    fee_id = fill["op"]["fee"]["asset_id"]
+                    fee_name = objects[fee_id]["name"]
+                    if fee_name not in [base_name, quote_name]:
+                        raise ValueError("fee outside of trading pair")
+                    fee_precision = int(objects[fee_id]["precision"])
+                    fee_amount = float(fill["op"]["fee"]["amount"]) / 10**fee_precision
+                    fee = {"asset": fee_name, "amount": fee_amount}
+                except Exception:
+                    pass
                 # pair and order id
                 fill_trading_pair = base_name + "-" + quote_name
                 exchange_order_id = fill["op"]["order_id"]
@@ -743,6 +905,9 @@ class RemoteProcedureCall:
                             "price": float(receives / pays),
                             "amount": float(pays),
                             "type": "SELL",
+                            "unix": from_iso_date(fill["time"]),
+                            "sequence": abs(fill["key"]["sequence"]),
+                            "fee": fee,
                         }
                     )
                 # eg pays USD receives BTC in BTC-USD market; price = $50,000
@@ -753,14 +918,14 @@ class RemoteProcedureCall:
                             "price": float(pays / receives),
                             "amount": float(receives),
                             "type": "BUY",
+                            "unix": from_iso_date(fill["time"]),
+                            "sequence": abs(fill["key"]["sequence"]),
+                            "fee": fee,
                         }
                     )
             blip(0.5)
         # fills should never get shorter
-        return [
-            json.loads(i)
-            for i in list({json.dumps(i) for i in rpc_fills + metanode_fills})
-        ]
+        return [json.loads(i) for i in list({json.dumps(i) for i in rpc_fills + metanode_fills})]
 
     def operations(self):
         """
@@ -865,9 +1030,7 @@ class RemoteProcedureCall:
             quote_name = objects[quote_id]["name"]
             pair = base_name + "-" + quote_name
             # extract the amount for the fee, base, and quote in human terms
-            fee_amount = create["op"][1]["fee"]["amount"] / 10 ** int(
-                objects[fee_id]["precision"]
-            )
+            fee_amount = create["op"][1]["fee"]["amount"] / 10 ** int(objects[fee_id]["precision"])
             base_amount = create["op"][1]["amount_to_sell"]["amount"] / 10 ** int(
                 objects[base_id]["precision"]
             )
@@ -911,9 +1074,7 @@ class RemoteProcedureCall:
         my_cancel_ops = []
         for cancel in cancels:
             fee_id = cancel["op"][1]["fee"]["asset_id"]
-            fee_amount = cancel["op"][1]["fee"]["amount"] / 10 ** int(
-                objects[fee_id]["precision"]
-            )
+            fee_amount = cancel["op"][1]["fee"]["amount"] / 10 ** int(objects[fee_id]["precision"])
             my_cancel_ops.append(
                 {
                     "order_id": cancel["op"][1]["order"],
@@ -933,7 +1094,7 @@ class RemoteProcedureCall:
 
     # BROADAST API
     # ==================================================================================
-    def broadcast_transaction(self, trx, client_order_id=1, callback=False):
+    def broadcast_transaction(self, trx, client_order_id=1):
         """
         upload the signed transaction to the blockchain
         ~
@@ -948,10 +1109,12 @@ class RemoteProcedureCall:
             :RPC returns: info about the block including the transaction
         """
         broadcast = "broadcast_transaction"
-        if callback:
+        if self.session:
             broadcast += "_with_callback"
-        ret = self.wss_query(["network_broadcast", broadcast, [trx]], client_order_id)
-        print(json.dumps(ret, indent=4))
+            trx = [client_order_id, trx]
+        else:
+            trx = [trx]
+        ret = self.wss_query(["network_broadcast", broadcast, trx], client_order_id)
         return ret
 
 
@@ -962,7 +1125,7 @@ def unit_test():
     input(
         "you must have a metanode server running to \n"
         + "test the RemoteProcedureCall class. Please run\n\n"
-        + "`python3 graphene_metanode_server.py`\n\n"
+        + "`python3 metanode.graphene_metanode_server.py`\n\n"
         + "in a seperate terminal, then press enter."
     )
     constants = GrapheneConstants()
@@ -970,15 +1133,12 @@ def unit_test():
     for key, val in dispatch.items():
         print(key + ": " + val)
     chain = dispatch[input("Enter choice: ")]
-
     constants = GrapheneConstants(chain)
     print("\033c")
-
     dispatch = {str(idx): pair for idx, pair in enumerate(constants.chain.PAIRS)}
     for key, val in dispatch.items():
         print(key + ": " + val)
     pair = dispatch[input("Enter choice: ")]
-
     rpc = RemoteProcedureCall(constants, constants.chain.NODES)
     dispatch = [
         ("pair data", lambda: rpc.get_pair_data(pair)),

@@ -10,14 +10,13 @@ UNIT TEST AUTHENTICATED OPS
 
 # STANDARD MODULES
 import json
-import traceback
 from getpass import getpass
 
 # GRAPHENE MODULES
-from graphene_auth import GrapheneAuth
-from graphene_constants import GrapheneConstants
-from graphene_metanode_server import GrapheneTrustlessClient
-from graphene_utils import it, jprint
+from metanode.graphene_auth import GrapheneAuth
+from metanode.graphene_constants import GrapheneConstants
+from metanode.graphene_metanode_server import GrapheneTrustlessClient
+from metanode.graphene_utils import it
 
 
 def sample_orders(auth, constants, pair, active):
@@ -33,8 +32,18 @@ def sample_orders(auth, constants, pair, active):
     order2["edicts"] = [{"op": "cancel", "ids": ["1.7.X"]}]
     # place two limit orders
     order3["edicts"] = [
-        {"op": "buy", "amount": 10, "price": 0.2, "expiration": 0,},
-        {"op": "sell", "amount": 10, "price": 0.7, "expiration": 0,},
+        {
+            "op": "buy",
+            "amount": 10,
+            "price": 0.5,
+            "expiration": 0,
+        },
+        {
+            "op": "sell",
+            "amount": 10,
+            "price": 0.5,
+            "expiration": 0,
+        },
     ]
     # query open orders from the metanode and cancel 2 of them
     metanode = GrapheneTrustlessClient(constants)
@@ -45,6 +54,9 @@ def sample_orders(auth, constants, pair, active):
 
 
 def unit_test():
+    """
+    'broker' an order
+    """
     constants = GrapheneConstants()
     dispatch = {str(idx): chain for idx, chain in enumerate(constants.core.CHAINS)}
     for key, value in dispatch.items():
@@ -83,10 +95,9 @@ def unit_test():
     for key, val in choices.items():
         print(it("green", key), ":", it("cyan", val))
     choice = input("\n\n")
-    auth.broker(dispatch[choice])
+    print(auth.broker(dispatch[choice]))
 
 
 if __name__ == "__main__":
-
     print("\033c")
     unit_test()

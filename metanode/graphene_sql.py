@@ -20,7 +20,6 @@ note in some cases a REAL or INTEGER may be a TEXT as maven, eg.
 maven.account.fees.cancel = "[0.2, 0.2, 0.2, 0.1]" ->
 account.fees.cancel = 0.2
 """
-
 # STANDARD MODULES
 import json
 import os
@@ -29,12 +28,12 @@ from sqlite3 import OperationalError, Row, connect
 
 # GRAPHENE MODULES
 # ~ *soon* from hummingbot.connector.exchange.graphene.
-from graphene_constants import GrapheneConstants
-from graphene_utils import it, jprint
+from metanode.graphene_constants import GrapheneConstants
+from metanode.graphene_utils import it, jprint
 
 # GLOBAL CONSTANTS
 DEV = False
-PATH = os.path.dirname(os.path.abspath(__file__)) + "/database"
+# self.constants.core.PATH = os.path.dirname(os.path.abspath(__file__)) + "/database"
 CREATES = [
     """
     CREATE TABLE chain (
@@ -240,17 +239,17 @@ class Sql:
         delete any existing db and initialize new SQL db
         """
         # create database folder
-        os.makedirs(PATH, exist_ok=True)
+        os.makedirs(self.constants.core.PATH + "/database", exist_ok=True)
         # user input w/ warning
-        print("\033c")
-        print(
-            it("red", "WARNING THIS SCRIPT WILL RESTART DATABASE AND ERASE ALL DATA\n")
-        )
+        # print("\033c")
+        # print(it("red", "WARNING THIS SCRIPT WILL RESTART DATABASE AND ERASE ALL DATA\n"))
         # erase the database
-        command = f"rm {self.constants.chain.DATABASE}"
-        print("\033c", it("red", command), "\n")
+        command = f"rm {self.constants.chain.DATABASE} 2>1 1>/dev/null"
+        # print("\033c", it("red", command), "\n")
+
         os.system(command)
-        print("creating sqlite3:", it("green", self.constants.chain.DATABASE), "\n")
+        # print("creating sqlite3:", it("green", self.constants.chain.DATABASE), "\n")
+        print("creating sqlite3...")
         # initialize insert operations with chain specific configuration
         inserts = [
             (
@@ -329,7 +328,7 @@ class Sql:
                     (asset,),
                 )
             )
-        for pair in self.constants.chain.PAIRS:
+        for pair in self.constants.chain.ALL_PAIRS:
             inserts.append(
                 (
                     """
@@ -377,6 +376,7 @@ class Sql:
         if DEV:
             for query in SELECTS:
                 jprint(self.execute(query))
+        # ~ raise ValueError("created database")
 
     def execute(self, query, values=()):
         """
@@ -467,7 +467,7 @@ class Sql:
                     print("Race condition at", int(time.time()))
                 # ascending pause here prevents excess cpu on corruption of database
                 # and allows for decreased load during race condition
-                time.sleep(min(5, 1.01 ** pause - 1))
+                time.sleep(min(5, 1.01**pause - 1))
                 continue
 
 

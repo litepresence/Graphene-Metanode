@@ -10,16 +10,66 @@ DATABASE VISUALIZATION CLI GUI
 """
 
 # STANDARD MODULES
-import os
 import time
 from json import loads
 from random import choice, randint
 from sqlite3 import OperationalError
 
 # GRAPHENE MODULES
-from graphene_constants import GrapheneConstants
-from graphene_sql import Sql
-from graphene_utils import at, it, ld2dd, precision, sls, two_tone
+from metanode.graphene_constants import GrapheneConstants
+from metanode.graphene_sql import Sql
+from metanode.graphene_utils import at, it, ld2dd, precision, two_tone
+
+LOGO = """
+╔═╗
+║ ╦
+╚═╝
+╦═╗
+╠╦╝
+╩╚═
+╔═╗
+╠═╣
+╩ ╩
+╔═╗
+╠═╝
+╩
+╦ ╦
+╠═╣
+╩ ╩
+╔═╗
+║╣
+╚═╝
+╔╗╔
+║║║
+╝╚╝
+╔═╗
+║╣
+╚═╝\n\n\n\n
+╔╦╗
+║║║
+╩ ╩
+╔═╗
+║╣
+╚═╝
+╔╦╗
+ ║
+ ╩
+╔═╗
+╠═╣
+╩ ╩
+╔╗╔
+║║║
+╝╚╝
+╔═╗
+║ ║
+╚═╝
+╔╦╗
+ ║║
+═╩╝
+╔═╗
+║╣
+╚═╝
+""".replace("    ", "")
 
 LETTERS = {
     "a": """
@@ -145,9 +195,7 @@ def convert(text, foreground, printing=False):
     Converts regular text text to banner3D text
     """
 
-    letters = {
-        k: v.replace(",", "").strip("\n").split("\n") for k, v in LETTERS.items()
-    }
+    letters = {k: v.replace(",", "").strip("\n").split("\n") for k, v in LETTERS.items()}
 
     end_string = ""
 
@@ -199,6 +247,9 @@ TIME_DURATION_UNITS = (
 
 
 def human_time_duration(seconds):
+    """
+    Convert seconds to hrs, mins, etc
+    """
     if seconds == 0:
         return "inf"
     parts = []
@@ -217,7 +268,6 @@ def animate(sql):
     height = 65
 
     def plot(x_list, y_list):
-
         query = f"""
             SELECT * FROM timing
         """
@@ -246,8 +296,7 @@ def animate(sql):
                 print(
                     at(
                         (80, 5, 0, 0),
-                        it("white", "BLOCKTIME:   ")
-                        + it("yellow", str(timing["blocktime"])),
+                        it("white", "BLOCKTIME:   ") + it("yellow", str(timing["blocktime"])),
                     )
                 )
                 print(
@@ -255,19 +304,18 @@ def animate(sql):
                         (80, 2, 60, 1),
                         it("white", "LATENCY:     ")
                         + two_tone(
-                            str(precision(time.time() - timing["blocktime"], 2)), "purple", "blue"
+                            str(precision(time.time() - timing["blocktime"], 2)),
+                            "purple",
+                            "blue",
                         ),
                     )
                 )
                 if time.time() - timing["blocktime"] > 30:
-                    print(
-                        at((60, 11, 70, 4), convert("WARNING FEED IS STALE", "red"))
-                    )
+                    print(at((60, 11, 70, 4), convert("WARNING FEED IS STALE", "red")))
                 print(
                     at(
                         (80, 4, 0, 0),
-                        it("white", "BLOCKNUM:    ")
-                        + it("yellow", str(timing["blocknum"])),
+                        it("white", "BLOCKNUM:    ") + it("yellow", str(timing["blocknum"])),
                     )
                 )
                 print(
@@ -275,20 +323,19 @@ def animate(sql):
                         (80, 3, 47, 1),
                         it("white", "RUNTIME:     ")
                         + two_tone(
-                            str(
-                                human_time_duration(int(time.time() - timing["begin"]))
-                            ), "yellow", "green"
+                            str(human_time_duration(int(time.time() - timing["begin"]))),
+                            "yellow",
+                            "green",
                         ),
                     )
                 )
+
     populations = []
     rates = []
     for rate in range(2000, 4000):
         ppopulation = float(0.4)
         for _ in range(100 + randint(-10, 10)):
-            population = (
-                float(rate / 1000) * float(ppopulation) * float(1 - ppopulation)
-            )
+            population = float(rate / 1000) * float(ppopulation) * float(1 - ppopulation)
             ppopulation = population
         populations.append(ppopulation)
         rates.append(rate / 1000)
@@ -327,9 +374,7 @@ def static():
     for rate in range(2000, 4000):
         ppopulation = float(0.4)
         for _ in range(100 + randint(-10, 10)):
-            population = (
-                float(rate / 1000) * float(ppopulation) * float(1 - ppopulation)
-            )
+            population = float(rate / 1000) * float(ppopulation) * float(1 - ppopulation)
             ppopulation = population
         populations.append(ppopulation)
         rates.append(rate / 1000)
@@ -355,6 +400,7 @@ def main():
     sql = Sql(constants)
     pairs_i = list(constants.chain.PAIRS)
     i = 0
+    print("\033[?25l")
     try:
         while True:
             query = f"""
@@ -369,7 +415,6 @@ def main():
                 SELECT * FROM account
             """
             account = sql.execute(query)[0]
-            #account = {k:(v if k != "cancels" else loads(v)) for k, v in sql.execute(query)[0].items()}
             query = f"""
                 SELECT * FROM pairs
             """
@@ -411,7 +456,10 @@ def main():
             # CHAIN
             # ==========================================================================
             print(
-                at((140, 2, 0, 0), it("white", "ID:    ") + two_tone(chain[0]["id"], "blue", "purple"))
+                at(
+                    (140, 2, 0, 0),
+                    it("white", "ID:    ") + two_tone(chain[0]["id"], "blue", "purple"),
+                )
             )
             print(
                 at(
@@ -430,8 +478,7 @@ def main():
                 print(
                     at(
                         (15, 37, 4, 1),
-                        it("yellow", str(len(pairs[pair]["book"]["bids"])))
-                        + it("white", " BIDS")
+                        it("yellow", str(len(pairs[pair]["book"]["bids"]))) + it("white", " BIDS"),
                     )
                 )
                 for idx, item in enumerate(pairs[pair]["book"]["bids"][:3]):
@@ -440,8 +487,7 @@ def main():
                 print(
                     at(
                         (52, 37, 4, 1),
-                        it("yellow", str(len(pairs[pair]["book"]["asks"])))
-                        + it("white", " ASKS")
+                        it("yellow", str(len(pairs[pair]["book"]["asks"]))) + it("white", " ASKS"),
                     )
                 )
                 for idx, item in enumerate(pairs[pair]["book"]["asks"][:3]):
@@ -452,8 +498,7 @@ def main():
             print(
                 at(
                     (88, 37, 20, 1),
-                    it("yellow", str(len(pairs[pair]["history"])))
-                    + it("white", " HISTORY")
+                    it("yellow", str(len(pairs[pair]["history"]))) + it("white", " HISTORY"),
                 )
             )
             for idx, item in enumerate(pairs[pair]["history"][:3]):
@@ -469,7 +514,7 @@ def main():
                     at(
                         (140, 48, 23, 1),
                         it("yellow", str(len(loads(account["cancels"]))))
-                        + it("white", " CANCEL OPERATIONS")
+                        + it("white", " CANCEL OPERATIONS"),
                     )
                 )
                 print(
@@ -477,9 +522,7 @@ def main():
                         (140, 49, 0, 0),
                         it(
                             "grey",
-                            str(list(loads(account["cancels"])[0].keys()))
-                            .replace("'", "")
-                            .upper(),
+                            str(list(loads(account["cancels"])[0].keys())).replace("'", "").upper(),
                         ),
                     )
                 )
@@ -499,7 +542,7 @@ def main():
                     at(
                         (140, 55, 20, 1),
                         it("yellow", str(len(pairs[pair]["ops"]["creates"])))
-                        + it("white", " CREATE OPERATIONS")
+                        + it("white", " CREATE OPERATIONS"),
                     )
                 )
                 print(
@@ -536,8 +579,7 @@ def main():
                 print(
                     at(
                         (15, 48, 11, 1),
-                        it("yellow", str(len(pairs[pair]["opens"])))
-                        + it("white", " OPEN ORDERS")
+                        it("yellow", str(len(pairs[pair]["opens"]))) + it("white", " OPEN ORDERS"),
                     )
                 )
                 print(
@@ -545,9 +587,7 @@ def main():
                         (15, 49, 0, 0),
                         it(
                             "grey",
-                            str(list(pairs[pair]["opens"][0].keys()))
-                            .replace("'", "")
-                            .upper(),
+                            str(list(pairs[pair]["opens"][0].keys())).replace("'", "").upper(),
                         ),
                     )
                 )
@@ -574,8 +614,7 @@ def main():
                 print(
                     at(
                         (15, 55, 11, 1),
-                        it("yellow", str(len(pairs[pair]["fills"])))
-                        + it("white", " FILL ORDERS")
+                        it("yellow", str(len(pairs[pair]["fills"]))) + it("white", " FILL ORDERS"),
                     )
                 )
                 print(
@@ -583,9 +622,7 @@ def main():
                         (15, 56, 0, 0),
                         it(
                             "grey",
-                            str(list(pairs[pair]["fills"][0].keys()))
-                            .replace("'", "")
-                            .upper(),
+                            str(list(pairs[pair]["fills"][0].keys())).replace("'", "").upper(),
                         ),
                     )
                 )
@@ -612,15 +649,11 @@ def main():
                     (142, 17, 0, 0),
                     it(
                         "grey",
-                        str(["ping", "handshake", "url", "status"])
-                        .replace("'", "")
-                        .upper(),
+                        str(["ping", "handshake", "url", "status"]).replace("'", "").upper(),
                     ),
                 )
             )
-            nodesp = [
-                [i["ping"], i["handshake"], i["url"], i["status"]] for i in nodes[:10:]
-            ]
+            nodesp = [[i["ping"], i["handshake"], i["url"], i["status"]] for i in nodes[:10:]]
             connected = 0
             for iteration in nodes:
                 if iteration["status"] == "CONNECTED":
@@ -629,7 +662,12 @@ def main():
             print(at((185, 17, 0, 0), two_tone(ratio, "yellow", "green")))
             for idx, node in enumerate(nodesp):
                 if node[-1] == "CONNECTED":
-                    print(at((142, idx + 18, 0, 0), two_tone(str(node), "green", "yellow")))
+                    print(
+                        at(
+                            (142, idx + 18, 0, 0),
+                            two_tone(str(node), "green", "yellow"),
+                        )
+                    )
                 elif node[-1] == "CONNECTION TIMEOUT":
                     print(at((142, idx + 18, 0, 0), two_tone(str(node), "purple", "blue")))
                 else:
@@ -644,17 +682,19 @@ def main():
                 justs = max(
                     len(str(i["name"])) + 2
                     for i in assets[:16:]
-                    if ((i["name"] in pair.split("-")) or (i["id"] in "1.3.0"))
+                    if ((i["name"] in pair.split("-")) or (str(i["id"]) in "1.3.0"))
                 )
 
                 for asset in assets[:16:]:
-                    if asset["name"] in pair.split("-") or asset["id"] in "1.3.0":
+                    if asset["name"] in pair.split("-") or str(asset["id"]) in "1.3.0":
                         print(
                             at(
                                 (10, 13 + idx, 0, 0),
                                 it("white", (asset["name"] + ": ").ljust(justs))
                                 + two_tone(
-                                    str(list(asset["balance"].values())), "blue", "purple"
+                                    str(list(asset["balance"].values())),
+                                    "blue",
+                                    "purple",
                                 ),
                             )
                         )
@@ -686,7 +726,12 @@ def main():
             # ACCOUNT
             # ==========================================================================
             print(at((10, 2, 0, 0), it("white", "[NAME, ID]: ")))
-            print(at((22, 2, 0, 0), two_tone(str([account["name"], account["id"]]), "blue", "purple")))
+            print(
+                at(
+                    (22, 2, 0, 0),
+                    two_tone(str([account["name"], account["id"]]), "blue", "purple"),
+                )
+            )
             if account["fees_account"]:
                 print(
                     at(
@@ -698,7 +743,9 @@ def main():
                                     "create": account["fees_account"]["create"],
                                     "cancel": account["fees_account"]["cancel"],
                                 }
-                            ), "blue", "purple"
+                            ),
+                            "blue",
+                            "purple",
                         ),
                     )
                 )
@@ -712,67 +759,19 @@ def main():
                             (10, 5 + idx, 0, 0),
                             it("white", (asset["name"] + ": ").ljust(justs))
                             + two_tone(
-                                str(list(asset["fees_asset"].values())), "blue", "purple"
-                            )
+                                str(list(asset["fees_asset"].values())),
+                                "blue",
+                                "purple",
+                            ),
                         )
                     )
 
             animate(sql)
     except (KeyboardInterrupt, OperationalError):
         print(at((0, 69, 0, 0), ""))
+    finally:
+        print("\033[?25h")
 
 
 if __name__ == "__main__":
-    LOGO = """
-    ╔═╗
-    ║ ╦
-    ╚═╝
-    ╦═╗
-    ╠╦╝
-    ╩╚═
-    ╔═╗
-    ╠═╣
-    ╩ ╩
-    ╔═╗
-    ╠═╝
-    ╩
-    ╦ ╦
-    ╠═╣
-    ╩ ╩
-    ╔═╗
-    ║╣
-    ╚═╝
-    ╔╗╔
-    ║║║
-    ╝╚╝
-    ╔═╗
-    ║╣
-    ╚═╝\n\n\n\n
-    ╔╦╗
-    ║║║
-    ╩ ╩
-    ╔═╗
-    ║╣
-    ╚═╝
-    ╔╦╗
-     ║
-     ╩
-    ╔═╗
-    ╠═╣
-    ╩ ╩
-    ╔╗╔
-    ║║║
-    ╝╚╝
-    ╔═╗
-    ║ ║
-    ╚═╝
-    ╔╦╗
-     ║║
-    ═╩╝
-    ╔═╗
-    ║╣
-    ╚═╝
-    """.replace(
-        "    ", ""
-    )
     main()

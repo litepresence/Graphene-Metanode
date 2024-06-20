@@ -11,7 +11,6 @@ r"""
 UTILITIES
 A COLLECTION OF SHARED UTILITY FUNCTIONS FOR DEX CONNECTIVITY
 """
-
 # STANDARD MODULES
 import inspect
 import json
@@ -183,9 +182,7 @@ def it(style, text: str, background: int = None) -> str:
     def hex_to_rgb(value):
         value = value.lstrip("#")
         lenv = len(value)
-        return tuple(
-            int(value[i : i + lenv // 3], 16) for i in range(0, lenv, lenv // 3)
-        )
+        return tuple(int(value[i : i + lenv // 3], 16) for i in range(0, lenv, lenv // 3))
 
     # monokai
     emphasis = {
@@ -232,9 +229,7 @@ def at(
     to clear a terminal area at specific location of specified size
     and print a multi line text in that area
     """
-    final = "".join(
-        f"\033[{spot[1] + i};{spot[0]}H" + " " * spot[2] for i in range(spot[3])
-    )
+    final = "".join(f"\033[{spot[1] + i};{spot[0]}H" + " " * spot[2] for i in range(spot[3]))
     for ldx, line in enumerate(data.split("\n")):
         final += f"\033[{spot[1]+ldx};{spot[0]}H" + line
     return final
@@ -244,13 +239,10 @@ def two_tone(data, fgr, bgr):
     """
     given a dict or list convert it to indented json and return as two tone string
     """
-    text = ""
-    for char in json.dumps(data, indent=2).strip('"'):
-        if char.isdigit():
-            text += it(fgr, char)
-        else:
-            text += it(bgr, char)
-    return text
+    return "".join(
+        it(fgr, char) if char.isdigit() else it(bgr, char)
+        for char in json.dumps(data, indent=2).strip('"')
+    )
 
 
 def to_iso_date(unix: int) -> str:  #

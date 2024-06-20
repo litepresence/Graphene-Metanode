@@ -33,10 +33,10 @@ from json import loads
 
 # GRAPHENE MODULES
 # ~ *soon* from hummingbot.connector.exchange.graphene.
-from graphene_constants import GrapheneConstants
-from graphene_sql import Sql
-from graphene_utils import ld2dd, two_tone, it
-from unit_test_dbux import convert
+from metanode.graphene_constants import GrapheneConstants
+from metanode.graphene_sql import Sql
+from metanode.graphene_utils import it, ld2dd, two_tone
+from metanode.unit_test_dbux import convert
 
 
 class GrapheneTrustlessClient:
@@ -96,8 +96,7 @@ class GrapheneTrustlessClient:
         ["id", "name", "fees_account", "ltm", "cancels"]
         """
         return {
-            k: (v if k != "cancels" else loads(v))
-            for k, v in self._get_table("account")[0].items()
+            k: v if k != "cancels" else loads(v) for k, v in self._get_table("account")[0].items()
         }
 
     @property
@@ -173,7 +172,6 @@ def unit_test():
     chain = dispatch[input("Enter choice: ")]
     constants = GrapheneConstants(chain)
     metanode = GrapheneTrustlessClient(constants)
-
     methods = {
         "account": metanode.account,
         "assets": metanode.assets,
@@ -184,7 +182,6 @@ def unit_test():
         "timing": metanode.timing,
         "whitelist": metanode.whitelist,
     }
-
     for name, method in methods.items():
         print(convert(name, "green"))
         print(two_tone(method, "blue", "purple"))

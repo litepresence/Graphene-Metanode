@@ -1,7 +1,8 @@
 ##!/usr/bin/env python
 # DISABLE SELECT PYLINT TESTS
 # pylint: disable=bad-continuation, too-many-locals, broad-except, too-many-statements
-# pylint: disable=too-many-arguments, too-many-branches
+# pylint: disable=too-many-arguments, too-many-branches, too-many-nested-blocks
+# pylint: disable=too-many-lines
 r"""
  ╔════════════════════════════════════════════════════╗
  ║ ╔═╗╦═╗╔═╗╔═╗╦ ╦╔═╗╔╗╔╔═╗  ╔╦╗╔═╗╔╦╗╔═╗╔╗╔╔═╗╔╦╗╔═╗ ║
@@ -39,18 +40,26 @@ from threading import Thread
 
 # GRAPHENE MODULES
 # ~ *soon* from hummingbot.connector.exchange.graphene.
-from graphene_constants import GrapheneConstants
-from graphene_metanode_client import GrapheneTrustlessClient
-from graphene_rpc import RemoteProcedureCall
-from graphene_sql import SELECTS, Sql
-from graphene_utils import blip, invert_pairs, it, jprint, precision, trace
+from metanode.graphene_constants import GrapheneConstants
+from metanode.graphene_metanode_client import GrapheneTrustlessClient
+from metanode.graphene_rpc import RemoteProcedureCall
+from metanode.graphene_sql import SELECTS, Sql
+from metanode.graphene_utils import blip, invert_pairs, it, jprint, precision, trace
 
 DEV = False
+
+
+def log_info(data):
+    """log all dprints"""
+    with open("log.txt", "a") as handle:
+        handle.write(" ".join([str(i) for i in data]).replace("\\n", "\n") + "\n")
+        handle.close()
 
 
 def dprint(*data):
     """print for development"""
     if DEV:
+        log_info(data)
         print(*data)
 
 
@@ -68,6 +77,7 @@ class GrapheneMetanode:
     """
 
     def __init__(self, constants: GrapheneConstants):
+        self.initialized = False
         self.constants = constants
         self.metanode = GrapheneTrustlessClient(self.constants)
         self.constants.metanode.BEGIN = time.time()
@@ -89,6 +99,8 @@ class GrapheneMetanode:
         use sls(); sorted(list(set())) idiom on user config
         during development pause at each stage
         """
+        print("BOOTING METANODE")
+        killswitch = Value("i", 0)
         signal_latency = Value("i", 0)
         signal_oracle = Value("i", 0)
         signal_maven = Value("i", 0)
@@ -99,14 +111,14 @@ class GrapheneMetanode:
         self.jprint_db()
         dinput("Press Enter to deploy latency task")
         self.jprint_db()
-        latency_thread = Thread(target=self.latency_task, args=(signal_latency,))
+        latency_thread = Thread(target=self.latency_task, args=(signal_latency, killswitch))
         latency_thread.start()
         self.jprint_db()
         dinput("Press Enter to deploy cache task")
         self.cache_task()
         print(it("purple", "METANODE CACHE INITIALIZED"))
         while not bool(signal_latency.value):
-            blip(1)
+            time.sleep(1)
             continue
         print(it("purple", "METANODE LATENCY INITIALIZED"))
         self.jprint_db()
@@ -116,6 +128,7 @@ class GrapheneMetanode:
             maven_processes[maven_id] = Process(
                 target=self.maven_task,
                 args=(signal_maven, maven_free[maven_id], maven_id),
+                daemon=True,
             )
             maven_processes[maven_id].start()
         self.jprint_db()
@@ -124,7 +137,7 @@ class GrapheneMetanode:
         while not bool(signal_maven.value):
             blip(1)
             continue
-        oracle_thread = Thread(target=self.oracle_task, args=(signal_oracle,))
+        oracle_thread = Thread(target=self.oracle_task, args=(signal_oracle, killswitch))
         oracle_thread.start()
         while not bool(signal_oracle.value):
             blip(1)
@@ -133,24 +146,42 @@ class GrapheneMetanode:
         stars = it("cyan", "*" * 28)
         msg = it("green", "METANODE INITIALIZED")
         print(stars + "\n    " + msg + "\n" + stars)
+        self.initialized = True
         # maven regeneration
-        while True:
-            time.sleep(self.constants.metanode.REGENERATION_TUPLE)
-            maven_id = randint(0, self.constants.metanode.MAVENS - 1)
-            # ##########################################################################
-            # SECURITY no maven_id task SQL access when dying
-            maven_free[maven_id].value = 0
+        iteration = 0
+        while self.running_flag():
+            iteration += 1
+            if iteration >= self.constants.metanode.REGENERATION_TUPLE:
+                iteration = 0
+                maven_id = randint(0, self.constants.metanode.MAVENS - 1)
+                # ##########################################################################
+                # SECURITY no maven_id task SQL access when dying
+                maven_free[maven_id].value = 0
+                time.sleep(1)
+                maven_processes[maven_id].terminate()
+                # ##########################################################################
+                maven_processes[maven_id] = Process(
+                    target=self.maven_task,
+                    args=(signal_maven, maven_free[maven_id], maven_id),
+                    daemon=True
+                )
+                maven_processes[maven_id].start()
+                maven_free[maven_id].value = 1
             time.sleep(1)
-            maven_processes[maven_id].terminate()
-            # ##########################################################################
-            maven_processes[maven_id] = Process(
-                target=self.maven_task,
-                args=(signal_maven, maven_free[maven_id], maven_id),
-            )
-            maven_processes[maven_id].start()
-            maven_free[maven_id].value = 1
+        killswitch.value = 1
+        for maven in maven_processes.values():
+            maven.terminate()
 
-    def latency_task(self, signal_latency):
+    def running_flag(self):
+        try:
+            with open(self.constants.DATABASE_FOLDER + "metanode_flags.json", "r") as handle:
+                flag = json.loads(handle.read()).get(self.constants.chain.NAME, True)
+                handle.close()
+        except:
+            flag = True
+        return flag
+
+    def latency_task(self, signal_latency, killswitch):
         """
         classify the response status of each node in the user configuration
         the aim here to determine if this is a legit public api endpoint
@@ -192,9 +223,7 @@ class GrapheneMetanode:
                 block_latency = time.time() - blocktime.value
                 try:
                     # check if this node supports history
-                    rpc.market_history(self.constants.chain.PAIRS, depth=2)[
-                        0
-                    ]  # sample_pair?
+                    rpc.market_history(self.constants.chain.PAIRS, depth=2)[0]  # sample_pair?
                 except Exception:
                     code.value = 1001  # "NO HISTORY"
                 try:
@@ -219,14 +248,12 @@ class GrapheneMetanode:
                     code.value = 200  # "CONNECTED"
             except Exception as error:
                 code.value = 1007  # "CONNECTION FAILED"
-                dprint(
-                    str(node) + " " + str(type(error).__name__) + " " + str(error.args)
-                )
+                dprint(str(node) + " " + str(type(error).__name__) + " " + str(error.args))
                 dprint(trace(error))
 
         nodes_to_test = list(self.constants.chain.NODES)
         # begin the latency task loop:
-        while True:
+        while not killswitch.value:
             # initially test all nodes at once...
             # then test each node with a pause in between thereafter
             if signal_latency.value:
@@ -257,6 +284,7 @@ class GrapheneMetanode:
                             handshakes[node],
                             blocktimes[node],
                         ),
+                        daemon=True,
                     )
                     # begin all the threshers at once
                     thresher[node].start()
@@ -311,10 +339,10 @@ class GrapheneMetanode:
                 if self.metanode.whitelist:  # DISCRETE SQL QUERY
                     # ==================================================================
                     # latency pause is per node
-                    time.sleep(
-                        self.constants.metanode.LATENCY_TASK_PAUSE
-                        / len(self.constants.chain.NODES)
-                    )
+                    # pause but quit if the killswitch is thrown
+                    start = time.time()
+                    while time.time()-start < self.constants.metanode.LATENCY_TASK_PAUSE / len(self.constants.chain.NODES) and not killswitch.value:
+                        time.sleep(1)
 
     def cache_task(self):
         """
@@ -322,13 +350,13 @@ class GrapheneMetanode:
         This is called once at startup, prior to spawning additional processes
         """
 
-        def harvest(samples, node):
+        def harvest(samples, node,):
             """
             make external calls and add responses to the "samples" dict by key "node"
             """
             rpc = RemoteProcedureCall(self.constants, [node])
             cache = {}
-            cache["account_id"] = rpc.account_by_name()["id"]
+            cache["account_id"] = rpc.account_by_name().get("id", "1.2.-1")
             cache["assets"] = rpc.lookup_asset_symbols()
             rpc.close()
             samples[node] = json.dumps(cache)
@@ -339,16 +367,27 @@ class GrapheneMetanode:
             continue querying until we have agreement
             then update db cache objects *once* at launch
             """
-            pairs = self.constants.chain.PAIRS
+            all_pairs = self.constants.chain.ALL_PAIRS
             nodes = self.constants.chain.NODES
             assets = self.constants.chain.ASSETS
             samples = {}
+            threads = {}
+            # spawn the harvest threads
             for idx, node in enumerate(nodes):
-                thread = Thread(target=harvest, args=(samples, node))
-                thread.start()
-                dprint(f"thread #{idx}/{len(nodes)} started at {node}")
+                threads[node] = Thread(target=harvest, args=(samples, node))
+                threads[node].start()
+                dprint(f"Thread #{idx}/{len(nodes)} started at {node}")
+            # split the timeout between thread joins
+            timeout = self.constants.metanode.MAVEN_CACHE_HARVEST_JOIN
+            start = time.time()
             for idx, node in enumerate(nodes):
-                thread.join(self.constants.metanode.MAVEN_CACHE_HARVEST_JOIN)
+                threads[node].join(timeout)
+                if (elapsed := time.time()-start) < timeout:
+                    start = time.time()
+                    timeout -= elapsed
+
+            # return the wheat when there is a mode
+            for idx, node in enumerate(nodes):
                 try:
                     if len(nodes) == 1:
                         data = json.loads(samples[node])
@@ -409,7 +448,7 @@ class GrapheneMetanode:
                         ),
                     }
                 )
-            for pair in pairs:
+            for pair in all_pairs:
                 # add 1.3.X-1.3.X pair id
                 base_id = data["assets"][pair.split("-")[0]]["id"]
                 quote_id = data["assets"][pair.split("-")[1]]["id"]
@@ -432,12 +471,6 @@ class GrapheneMetanode:
                         "values": (pair_id, pair),
                     }
                 )
-                queries.append(
-                    {
-                        "query": "INSERT INTO objects (id, name) VALUES (?,?)",
-                        "values": (invert_pair_id, invert_pair),
-                    }
-                )
             # ==========================================================================
             self.sql.execute(queries)  # DISCRETE SQL QUERY
             # ==========================================================================
@@ -448,7 +481,7 @@ class GrapheneMetanode:
         # multiprocessing value turns to 1 upon success of thresh()
         cache_signal = Value("i", 0)
         while True:
-            process = Process(target=thresh, args=(cache_signal,))
+            process = Process(target=thresh, args=(cache_signal,), daemon=True)
             process.start()
             process.join(self.constants.metanode.CACHE_RESTART_JOIN)
             process.terminate()
@@ -471,11 +504,11 @@ class GrapheneMetanode:
             """
             execute atomic sql read/edit/write to update the maven feed
             """
-            print(
-                it("purple", "maven"),
-                tracker,
-                row,
-            )
+            # ~ print(
+            # ~ it("purple", "maven"),
+            # ~ tracker,
+            # ~ row,
+            # ~ )
             if tracker == "fills" and not sooth:
                 return
             # FIXME maven_id never gets used... its available for future dev
@@ -508,10 +541,7 @@ class GrapheneMetanode:
                                 (
                                     (
                                         json.dumps(
-                                            (
-                                                json.loads(cur.fetchall()[0][0])
-                                                + [sooth]
-                                            )[-mavens:]
+                                            (json.loads(cur.fetchall()[0][0]) + [sooth])[-mavens:]
                                         )
                                     ),
                                     row,
@@ -532,7 +562,6 @@ class GrapheneMetanode:
                                 maven_id,
                                 maven_free.value,
                             )
-
                 else:
                     while True:
                         try:
@@ -549,10 +578,7 @@ class GrapheneMetanode:
                                 (
                                     (
                                         json.dumps(
-                                            (
-                                                json.loads(cur.fetchall()[0][0])
-                                                + [sooth]
-                                            )[-mavens:]
+                                            (json.loads(cur.fetchall()[0][0]) + [sooth])[-mavens:]
                                         )
                                     ),
                                     row,
@@ -573,7 +599,6 @@ class GrapheneMetanode:
                                 maven_id,
                                 maven_free.value,
                             )
-
                 while True:
                     try:
                         con.commit()
@@ -604,11 +629,12 @@ class GrapheneMetanode:
             "blocktime": rpc.blocktime,
         }
         # localize constants
-        mavens = self.constants.metanode.MAVEN_WINDOW
-        pause = self.constants.metanode.MAVEN_PAUSE
-        account = self.constants.chain.ACCOUNT
-        assets = self.constants.chain.ASSETS
         pairs = self.constants.chain.PAIRS
+        assets = self.constants.chain.ASSETS
+        account = self.constants.chain.ACCOUNT
+        pause = self.constants.metanode.MAVEN_PAUSE
+        core_pairs = self.constants.chain.CORE_PAIRS
+        mavens = self.constants.metanode.MAVEN_WINDOW
         rpc_ratio = self.constants.metanode.MAVEN_RPC_RATIO
         high_low_ratio = self.constants.metanode.MAVEN_HIGH_LOW_RATIO
         while True:
@@ -646,9 +672,7 @@ class GrapheneMetanode:
                     for tracker in ["supply", "fees_asset"]:
                         blip(pause)
                         sooth = trackers[tracker]()  # WSS RPC
-                        maven_update(
-                            self, sooth[asset], tracker, asset, maven_id, maven_free
-                        )
+                        maven_update(self, sooth[asset], tracker, asset, maven_id, maven_free)
             # high frequency
             else:
                 # pair calls for account buy/sell/cancel operations and open orders
@@ -667,9 +691,7 @@ class GrapheneMetanode:
                             maven_free,
                         )
                     for pair in pairs:
-                        maven_update(
-                            self, sooth[pair], tracker, pair, maven_id, maven_free
-                        )
+                        maven_update(self, sooth[pair], tracker, pair, maven_id, maven_free)
                 #  pair calls for last, order book, fill orders, and market history
                 #  NOTE the creation if each sooth from RPC is pair specific
                 for tracker in ["last", "book", "fills", "history"]:
@@ -677,23 +699,56 @@ class GrapheneMetanode:
                         try:
                             blip(pause)
                             sooth = trackers[tracker](pair)  # WSS RPC
-                            maven_update(
-                                self, sooth, tracker, pair, maven_id, maven_free
-                            )
+                            maven_update(self, sooth, tracker, pair, maven_id, maven_free)
                         except Exception as error:
                             dprint(trace(error))
+                        # add the invert last price for every trading pair
+                        if tracker == "last":
+                            try:
+                                blip(pause)
+                                sooth = trackers[tracker](pair)  # WSS RPC
+                                maven_update(
+                                    self,
+                                    1 / sooth,
+                                    "last",
+                                    invert_pairs([pair])[0],
+                                    maven_id,
+                                    maven_free,
+                                )
+                            except Exception as error:
+                                dprint(trace(error))
+                # add exchange rates back to core token for every asset
+                for pair in core_pairs:
+                    try:
+                        blip(pause)
+                        sooth = trackers["last"](pair)  # WSS RPC
+                        maven_update(self, sooth, "last", pair, maven_id, maven_free)
+                    except Exception as error:
+                        dprint(trace(error))
+                    # add the invert last price for every core trading pair
+                    try:
+                        blip(pause)
+                        sooth = trackers["last"](pair)  # WSS RPC
+                        maven_update(
+                            self,
+                            1 / sooth,
+                            "last",
+                            invert_pairs([pair])[0],
+                            maven_id,
+                            maven_free,
+                        )
+                    except Exception as error:
+                        dprint(trace(error))
                 #  balances calls, NOTE one RPC and get a sooth keyed by asset
                 blip(pause)
                 sooth = trackers["balance"]()  # WSS RPC
                 for asset in self.constants.chain.ASSETS:
-                    maven_update(
-                        self, sooth[asset], "balance", asset, maven_id, maven_free
-                    )
+                    maven_update(self, sooth[asset], "balance", asset, maven_id, maven_free)
                 # blocktime and blocknum calls in maven timing table
                 for tracker in ["blocktime", "blocknum"]:
                     blip(pause)
                     sooth = trackers[tracker]()  # WSS RPC
-                    print(tracker + ": " + it("red", str(sooth).upper()))
+                    # ~ print("maven " + tracker + ": " + it("red", str(sooth).upper()))
                     maven_update(
                         self,
                         sooth,
@@ -702,12 +757,11 @@ class GrapheneMetanode:
                         maven_id,
                         maven_free,
                     )
-
             # return an iteration signal to the parent process
             signal_maven.value += 1
             blip(pause)
 
-    def oracle_task(self, signal_oracle):
+    def oracle_task(self, signal_oracle, killswitch):
         """
         read maven tracker data from the database
         write statistical mode of the maven as the oracle back to database, eg.
@@ -724,7 +778,7 @@ class GrapheneMetanode:
             execute atomic sql read/edit/write to update the oracle feed
             read table / row of maven_xyz, write statistical mode to xyz table / row
             """
-            print(it("red", "oracle"), tracker, row)
+            # ~ print(it("red", "oracle"), tracker, row)
             # ==========================================================================
             # SECURITY SQL hardcoded dict prevents injection at fstring
             # ==========================================================================
@@ -748,7 +802,6 @@ class GrapheneMetanode:
                             dprint("Race condition at", int(time.time()))
                         except Exception as error:
                             dprint(trace(error))
-
                 # timing trackers which require median statistic
                 elif tracker == "read":
                     while True:
@@ -772,9 +825,7 @@ class GrapheneMetanode:
                 elif tracker in ["handshake", "ping"]:
                     while True:
                         try:
-                            select_query = (
-                                f"""SELECT {tracker} FROM nodes WHERE code=200"""
-                            )
+                            select_query = f"""SELECT {tracker} FROM nodes WHERE code=200"""
                             select_values = tuple()
                             update_query = f"""UPDATE timing SET {tracker}=?"""
                             # update_values are atomic
@@ -793,13 +844,9 @@ class GrapheneMetanode:
                 while True:
                     try:
                         # the normal way of handling most tracker updates at oracle level
-                        select_query = (
-                            f"""SELECT {tracker} FROM maven_{table} WHERE name=?"""
-                        )
+                        select_query = f"""SELECT {tracker} FROM maven_{table} WHERE name=?"""
                         select_values = (row,)
-                        update_query = (
-                            f"""UPDATE {table} SET {tracker}=? WHERE name=?"""
-                        )
+                        update_query = f"""UPDATE {table} SET {tracker}=? WHERE name=?"""
                         cur.execute(select_query, select_values)
                         # ~ if tracker == "fills":
                         # ~ print(cur.fetchall())
@@ -817,9 +864,7 @@ class GrapheneMetanode:
                                         mode(
                                             [
                                                 json.dumps(i)
-                                                for i in json.loads(
-                                                    cur.fetchall()[0][0]
-                                                )
+                                                for i in json.loads(cur.fetchall()[0][0])
                                             ]
                                         )
                                     )
@@ -843,13 +888,9 @@ class GrapheneMetanode:
                 while True:
                     try:
                         # the normal way of handling most tracker updates at oracle level
-                        select_query = (
-                            f"""SELECT {tracker} FROM maven_{table} WHERE name=?"""
-                        )
+                        select_query = f"""SELECT {tracker} FROM maven_{table} WHERE name=?"""
                         select_values = (row,)
-                        update_query = (
-                            f"""UPDATE {table} SET {tracker}=? WHERE name=?"""
-                        )
+                        update_query = f"""UPDATE {table} SET {tracker}=? WHERE name=?"""
                         cur.execute(select_query, select_values)
                         # ~ if tracker == "fills":
                         # ~ print(cur.fetchall())
@@ -867,9 +908,7 @@ class GrapheneMetanode:
                                         mode(
                                             [
                                                 json.dumps(i)
-                                                for i in json.loads(
-                                                    cur.fetchall()[0][0]
-                                                )
+                                                for i in json.loads(cur.fetchall()[0][0])
                                             ]
                                         )
                                     )
@@ -901,11 +940,12 @@ class GrapheneMetanode:
             # ==========================================================================
 
         # localize constants
+        all_pairs = self.constants.chain.ALL_PAIRS
         pause = self.constants.metanode.ORACLE_PAUSE
         account = self.constants.chain.ACCOUNT
         assets = self.constants.chain.ASSETS
         pairs = self.constants.chain.PAIRS
-        while True:
+        while not killswitch.value:
             # low frequency
             if int(signal_oracle.value) % 20 == 0:
                 # account writes
@@ -939,6 +979,10 @@ class GrapheneMetanode:
                     for tracker in trackers:
                         blip(pause)
                         oracle_update(self, tracker, pair)
+                # provide a last price for every asset back to core token
+                for pair in all_pairs:
+                    blip(pause)
+                    oracle_update(self, "last", pair)
                 # updates to each row in asset table
                 trackers = ["balance"]
                 for asset in assets:

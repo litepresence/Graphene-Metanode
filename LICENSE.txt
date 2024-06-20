@@ -1,7 +1,7 @@
 Feb 1, 2022
 
 DEVastated by litepresence.com
-unit tests and UI/UX by www.github.com/squidKid-deluxe
+unit tests and UI/UX by Bitshares user squidkid-deluxe256 1.2.1798534
 this DEX connector was made possible by @jbahai PBSA.info/grants
 for Peerplays and the greater Graphene blockchain community
 as a precursor to Hummingbot.io connector integration
