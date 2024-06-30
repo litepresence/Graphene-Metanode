@@ -25,10 +25,9 @@ from random import shuffle
 import websocket
 
 # GRAPHENE MODULES
-# ~ *soon* from hummingbot.connector.exchange.graphene.
-from metanode.graphene_constants import GrapheneConstants
-from metanode.graphene_metanode_client import GrapheneTrustlessClient
-from metanode.graphene_utils import (
+from .graphene_constants import GrapheneConstants
+from .graphene_metanode_client import GrapheneTrustlessClient
+from .graphene_utils import (
     blip,
     from_iso_date,
     invert_pairs,
@@ -191,6 +190,7 @@ class RemoteProcedureCall:
         self.metanode = GrapheneTrustlessClient(self.constants)
         self.nodes = nodes
         self.printing = True
+        self.connection = None
         if nodes is None:
             # ==========================================================================
             self.nodes = list(self.metanode.whitelist)  # DISCRETE SQL QUERY
@@ -211,7 +211,7 @@ class RemoteProcedureCall:
         # in the case of metanode we want to keep track of latency
         handshake = handshake_max = self.constants.signing.HANDSHAKE_TIMEOUT
         iteration = 0
-        while handshake >= handshake_max and iteration < 10:
+        while handshake >= handshake_max and iteration < max(len(self.nodes)*2, 10):
             iteration += 1
             # attempt to close open stale connection
             try:
@@ -232,8 +232,6 @@ class RemoteProcedureCall:
                     pass
             # rotate the nodes list
             self.nodes.append(self.nodes.pop(0))
-        if iteration == 10:
-            raise RuntimeError("FAILED TO CONNECT, CHECK YOUR NODES")
         return self.connection
 
     def wss_query(self, params: list = None, client_order_id: int = 1) -> object:
@@ -293,6 +291,7 @@ class RemoteProcedureCall:
                 except Exception:
                     pass
                 self.connection = self.wss_handshake()
+        print(f"NODE FAILED AFTER 10 ATTEMPTS", jprint(params), client_order_id)
 
     def close(self):
         """
@@ -1030,11 +1029,11 @@ class RemoteProcedureCall:
             quote_name = objects[quote_id]["name"]
             pair = base_name + "-" + quote_name
             # extract the amount for the fee, base, and quote in human terms
-            fee_amount = create["op"][1]["fee"]["amount"] / 10 ** int(objects[fee_id]["precision"])
-            base_amount = create["op"][1]["amount_to_sell"]["amount"] / 10 ** int(
+            fee_amount = int(create["op"][1]["fee"]["amount"]) / 10 ** int(objects[fee_id]["precision"])
+            base_amount = int(create["op"][1]["amount_to_sell"]["amount"]) / 10 ** int(
                 objects[base_id]["precision"]
             )
-            quote_amount = create["op"][1]["min_to_receive"]["amount"] / 10 ** int(
+            quote_amount = int(create["op"][1]["min_to_receive"]["amount"]) / 10 ** int(
                 objects[quote_id]["precision"]
             )
             # from quote and base amount we can derive a price

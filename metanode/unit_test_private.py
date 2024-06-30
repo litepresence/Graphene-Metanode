@@ -13,10 +13,10 @@ import json
 from getpass import getpass
 
 # GRAPHENE MODULES
-from metanode.graphene_auth import GrapheneAuth
-from metanode.graphene_constants import GrapheneConstants
-from metanode.graphene_metanode_server import GrapheneTrustlessClient
-from metanode.graphene_utils import it
+from .graphene_auth import GrapheneAuth
+from .graphene_constants import GrapheneConstants
+from .graphene_metanode_server import GrapheneTrustlessClient
+from .graphene_utils import it
 
 
 def sample_orders(auth, constants, pair, active):

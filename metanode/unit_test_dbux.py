@@ -16,9 +16,9 @@ from random import choice, randint
 from sqlite3 import OperationalError
 
 # GRAPHENE MODULES
-from metanode.graphene_constants import GrapheneConstants
-from metanode.graphene_sql import Sql
-from metanode.graphene_utils import at, it, ld2dd, precision, two_tone
+from .graphene_constants import GrapheneConstants
+from .graphene_sql import Sql
+from .graphene_utils import at, it, ld2dd, precision, two_tone
 
 LOGO = """
 ╔═╗
@@ -159,7 +159,7 @@ LETTERS = {
     "v": """
 ╦  ╦
 ╚╗╔╝
- ╚╝ """,
+ ╚╝  """,
     "w": """
 ╦ ╦
 ║║║

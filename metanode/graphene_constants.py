@@ -18,7 +18,7 @@ from decimal import Decimal
 from random import randint
 
 # GRAPHENE MODULES
-from metanode.graphene_utils import assets_from_pairs, invert_pairs, it, sls
+from .graphene_utils import assets_from_pairs, invert_pairs, it, sls
 
 
 class GrapheneConstants:
@@ -102,7 +102,7 @@ class GrapheneConstants:
                 i for i in self.chain.PAIRS if i not in invert_pairs(self.chain.PAIRS)
             ]
             self.chain.INVERTED_PAIRS = invert_pairs(self.chain.PAIRS)
-            self.chain.ASSETS = assets_from_pairs(self.chain.PAIRS)
+            self.chain.ASSETS = list(set(assets_from_pairs(self.chain.PAIRS) + [self.chain.CORE]))
             self.chain.CORE_PAIRS = [
                 i
                 for i in [
@@ -304,8 +304,17 @@ class PeerplaysConfig:
     configuration details specific to peerplays mainnet
     """
 
-    ACCOUNT = ""
-    NODES = ["wss://peerplaysblockchain.net/mainnet/api"]
+    ACCOUNT = "test1" # for example purposes
+    NODES = [
+        "wss://ca.peerplays.info/",
+        "wss://de.peerplays.xyz/",
+        "wss://pl.peerplays.org/",
+        "ws://96.46.48.98:18090",
+        "wss://peerplaysblockchain.net/mainnet/api",
+        "ws://witness.serverpit.com:8090",
+        "ws://api.i9networks.net.br:8090",
+        "wss://node.mainnet.peerblock.trade"
+    ]
     PAIRS = ["BTC-PPY", "HIVE-PPY", "HBD-PPY"]
 
 

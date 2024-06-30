@@ -27,9 +27,8 @@ import time
 from sqlite3 import OperationalError, Row, connect
 
 # GRAPHENE MODULES
-# ~ *soon* from hummingbot.connector.exchange.graphene.
-from metanode.graphene_constants import GrapheneConstants
-from metanode.graphene_utils import it, jprint
+from .graphene_constants import GrapheneConstants
+from .graphene_utils import it, jprint
 
 # GLOBAL CONSTANTS
 DEV = False
@@ -244,7 +243,7 @@ class Sql:
         # print("\033c")
         # print(it("red", "WARNING THIS SCRIPT WILL RESTART DATABASE AND ERASE ALL DATA\n"))
         # erase the database
-        command = f"rm {self.constants.chain.DATABASE} 2>1 1>/dev/null"
+        command = f"rm {self.constants.chain.DATABASE} 2>&1 1>/dev/null"
         # print("\033c", it("red", command), "\n")
 
         os.system(command)

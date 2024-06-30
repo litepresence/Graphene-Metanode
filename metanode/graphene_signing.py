@@ -40,8 +40,8 @@ from secp256k1 import ffi as secp256k1_ffi  # compiled ffi object
 from secp256k1 import lib as secp256k1_lib  # library
 
 # GRAPHENE MODULES
-from metanode.graphene_constants import GrapheneConstants
-from metanode.graphene_utils import from_iso_date, it, trace
+from .graphene_constants import GrapheneConstants
+from .graphene_utils import from_iso_date, it, trace
 
 
 # GLOBAL CONSTANTS

@@ -39,14 +39,14 @@ from statistics import StatisticsError, median, mode, multimode
 from threading import Thread
 
 # GRAPHENE MODULES
-# ~ *soon* from hummingbot.connector.exchange.graphene.
-from metanode.graphene_constants import GrapheneConstants
-from metanode.graphene_metanode_client import GrapheneTrustlessClient
-from metanode.graphene_rpc import RemoteProcedureCall
-from metanode.graphene_sql import SELECTS, Sql
-from metanode.graphene_utils import blip, invert_pairs, it, jprint, precision, trace
+from .graphene_constants import GrapheneConstants
+from .graphene_metanode_client import GrapheneTrustlessClient
+from .graphene_rpc import RemoteProcedureCall
+from .graphene_sql import SELECTS, Sql
+from .graphene_utils import blip, invert_pairs, it, jprint, precision, trace
 
 DEV = False
+DEV_PAUSE = False
 
 
 def log_info(data):
@@ -66,7 +66,7 @@ def dprint(*data):
 def dinput(data):
     """input for development"""
     out = None
-    if DEV:
+    if DEV_PAUSE:
         out = input(data)
     return out
 
@@ -305,7 +305,6 @@ class GrapheneMetanode:
                         "status": status,
                         "blocktime": int(blocktimes[node].value),
                     }
-                dprint("\033c")
                 for node, values in nodes.items():
                     dprint(node, values)
                 node_updates = []
@@ -350,13 +349,19 @@ class GrapheneMetanode:
         This is called once at startup, prior to spawning additional processes
         """
 
-        def harvest(samples, node,):
+        def harvest(samples, node):
             """
             make external calls and add responses to the "samples" dict by key "node"
             """
             rpc = RemoteProcedureCall(self.constants, [node])
             cache = {}
-            cache["account_id"] = rpc.account_by_name().get("id", "1.2.-1")
+            acct_by_name = rpc.account_by_name()
+            if isinstance(acct_by_name, dict) and "id" in acct_by_name:
+                cache["account_id"] = acct_by_name["id"]
+            else:
+                dprint(node, "is a bad node, returned", acct_by_name)
+                rpc.close()
+                return
             cache["assets"] = rpc.lookup_asset_symbols()
             rpc.close()
             samples[node] = json.dumps(cache)
@@ -382,9 +387,15 @@ class GrapheneMetanode:
             start = time.time()
             for idx, node in enumerate(nodes):
                 threads[node].join(timeout)
-                if (elapsed := time.time()-start) < timeout:
-                    start = time.time()
-                    timeout -= elapsed
+                elapsed = time.time()-start
+                start = time.time()
+                timeout -= elapsed
+                if timeout <= 0:
+                    break
+
+            whitelisted = len(self.metanode.whitelist)
+
+            data = {}
 
             # return the wheat when there is a mode
             for idx, node in enumerate(nodes):
@@ -395,6 +406,7 @@ class GrapheneMetanode:
                     if idx >= min(
                         len(self.constants.chain.NODES) - 1,
                         self.constants.metanode.MAVENS,
+                        whitelisted-1,
                         5,
                     ):
                         data = json.loads(
@@ -487,6 +499,8 @@ class GrapheneMetanode:
             process.terminate()
             if bool(cache_signal.value):
                 break
+            else:
+                dprint("CACHE TASK RESTARTING")
 
     def maven_task(self, signal_maven, maven_free, maven_id):
         """

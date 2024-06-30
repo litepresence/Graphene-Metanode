@@ -14,12 +14,12 @@ DATABASE VISUALIZATION CLI GUI
 import time
 from random import choice
 
-from metanode.graphene_constants import GrapheneConstants
+from .graphene_constants import GrapheneConstants
 
 # GRAPHENE MODULES
-from metanode.graphene_metanode_client import GrapheneTrustlessClient
-from metanode.graphene_utils import at, it, two_tone
-from metanode.unit_test_dbux import convert
+from .graphene_metanode_client import GrapheneTrustlessClient
+from .graphene_utils import at, it, two_tone
+from .unit_test_dbux import convert
 
 
 def unit_test():

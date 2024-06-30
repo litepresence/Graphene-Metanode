@@ -25,25 +25,25 @@ from multiprocessing import Manager, Process, Value
 from struct import unpack_from  # convert back to PY variable
 
 # GRAPHENE MODULES
-# ~ *soon* from hummingbot.connector.exchange.graphene.
-from metanode.graphene_metanode_server import GrapheneTrustlessClient
-from metanode.graphene_rpc import RemoteProcedureCall
-from metanode.graphene_signing import (
+from .graphene_metanode_server import GrapheneTrustlessClient
+from .graphene_rpc import RemoteProcedureCall
+from .graphene_signing import (
     ObjectId,
     PrivateKey,
     serialize_transaction,
     sign_transaction,
     verify_transaction,
 )
-from metanode.graphene_utils import it, to_iso_date, trace
+from .graphene_utils import it, to_iso_date, trace
 
 DEV = False
-
+DEVLOG = False
 
 def dprint(*args, **kwargs):
     """dprint for development"""
     if DEV:
         print(*args, **kwargs)
+    if DEVLOG:
         with open("~/metanodelog.txt", "a") as handle:
             handle.write(" ".join(str(i) for i in args) + "\n")
             handle.close()
@@ -315,8 +315,9 @@ class GrapheneAuth:
             print("process elapsed: %.3f sec" % (time.time() - start), "\n\n")
             signal.value = 1
         except Exception as error:
-            with open("/home/oracle/metanodelog.txt", "a") as handle:
-                handle.write(time.ctime() + "\n" + trace(error))
+            if DEVLOG:
+                with open("~/metanodelog.txt", "a") as handle:
+                    handle.write(time.ctime() + "\n" + trace(error))
             print(error)
             print("^" * 100)
         remote_msg.value = msg

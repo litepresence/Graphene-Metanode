@@ -32,11 +32,10 @@ with collection procedures offering 99.9999% uptime
 from json import loads
 
 # GRAPHENE MODULES
-# ~ *soon* from hummingbot.connector.exchange.graphene.
-from metanode.graphene_constants import GrapheneConstants
-from metanode.graphene_sql import Sql
-from metanode.graphene_utils import it, ld2dd, two_tone
-from metanode.unit_test_dbux import convert
+from .graphene_constants import GrapheneConstants
+from .graphene_sql import Sql
+from .graphene_utils import it, ld2dd, two_tone
+from .unit_test_dbux import convert
 
 
 class GrapheneTrustlessClient:

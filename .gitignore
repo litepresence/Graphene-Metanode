@@ -1,2 +1,7 @@
 /dist
 /metanode.egg-info
+/build
+/metanode/database
+/metanode/__pycache__
+log.txt
+
