@@ -54,7 +54,8 @@ class GrapheneConstants:
             "peerplays testnet": {
                 "core": "TEST",
                 "config": PeerplaysTestnetConfig,
-                "id": "7c1c72eb738b3ff1870350f85daca27e2d0f5dd25af27df7475fbd92815e421e",
+                # "7c1c72eb738b3ff1870350f85daca27e2d0f5dd25af27df7475fbd92815e421e"
+                "id":"195d4e865e3a27d2b204de759341e4738f778dd5c4e21860c7e8bf1bd9c79203"
             },
             "bitshares": {
                 "core": "BTS",
@@ -324,8 +325,8 @@ class PeerplaysTestnetConfig:
     """
 
     ACCOUNT = "litepresence1"
-    NODES = ["wss://ymir.peerplays.download/api"]
-    PAIRS = ["TEST-ABC", "TEST-XYZ"]
+    NODES = ["wss://testnet.peerplays.download/api"]
+    PAIRS = ["TEST-ABC", "TEST-DEFG"]
 
 
 class BitsharesConfig:

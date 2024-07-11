@@ -584,8 +584,10 @@ class RemoteProcedureCall:
         asset, currency = pair.split("-")
         ticker = self.wss_query(["database", "get_ticker", [currency, asset, False]])
         last = float(precision(ticker["latest"], 16))
-        if float(last) == 0 and not self.constants.metanode.DEV:
-            raise ValueError("zero price last")
+        if float(last) == 0:
+            last = -1
+        # if not self.constants.metanode.DEV:
+        #     raise ValueError("zero price last")
         return last
 
     def market_history(self, pair, depth=100):
