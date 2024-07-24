@@ -243,10 +243,7 @@ class Sql:
         # print("\033c")
         # print(it("red", "WARNING THIS SCRIPT WILL RESTART DATABASE AND ERASE ALL DATA\n"))
         # erase the database
-        command = f"rm {self.constants.chain.DATABASE} 2>&1 1>/dev/null"
-        # print("\033c", it("red", command), "\n")
-
-        os.system(command)
+        os.remove(self.constants.chain.DATABASE)
         # print("creating sqlite3:", it("green", self.constants.chain.DATABASE), "\n")
         print("creating sqlite3...")
         # initialize insert operations with chain specific configuration
