@@ -41,7 +41,7 @@ def sample_orders(auth, constants, pair, active):
         {
             "op": "sell",
             "amount": 1,
-            "price": 1,
+            "price": 1.1,
             "expiration": 0,
         },
     ]
