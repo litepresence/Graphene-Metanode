@@ -37,6 +37,7 @@ from random import choice, randint, shuffle
 from sqlite3 import OperationalError, connect
 from statistics import StatisticsError, median, mode, multimode
 from threading import Thread
+from inspect import currentframe
 
 # GRAPHENE MODULES
 from .graphene_constants import GrapheneConstants
@@ -45,21 +46,22 @@ from .graphene_rpc import RemoteProcedureCall
 from .graphene_sql import SELECTS, Sql
 from .graphene_utils import blip, invert_pairs, it, jprint, precision, trace
 
-DEV = False
+DEV = True
 DEV_PAUSE = False
+LOG = False  # FIXME seems to be buggy; logs one thing hundreds of times; race conditions?
+
+if LOG:
+    from .graphene_utils import log_print as print
 
 
-def log_info(data):
-    """log all dprints"""
-    with open("log.txt", "a") as handle:
-        handle.write(" ".join([str(i) for i in data]).replace("\\n", "\n") + "\n")
-        handle.close()
+def get_linenumber():
+    cf = currentframe()
+    return cf.f_back.f_lineno
 
 
 def dprint(*data):
     """print for development"""
     if DEV:
-        log_info(data)
         print(*data)
 
 
@@ -168,6 +170,7 @@ class GrapheneMetanode:
                 maven_processes[maven_id].start()
                 maven_free[maven_id].value = 1
             time.sleep(1)
+        print("Metanode signalled to shut down, killing all child processes...")
         killswitch.value = 1
         for maven in maven_processes.values():
             maven.terminate()
@@ -175,9 +178,9 @@ class GrapheneMetanode:
     def running_flag(self):
         try:
             with open(self.constants.DATABASE_FOLDER + "metanode_flags.json", "r") as handle:
-                flag = json.loads(handle.read()).get(self.constants.chain.NAME, True)
+                flag = json.loads(handle.read()).get(self.constants.chain.NAME.replace("_", " "), True)
                 handle.close()
-        except:
+        except FileNotFoundError:
             flag = True
         return flag
 
@@ -548,7 +551,9 @@ class GrapheneMetanode:
                     con = connect(self.constants.chain.DATABASE)
                     cur = con.cursor()
                     cur.execute(read_query, read_values)
+                    pause = 0
                     while True:
+                        pause += 1
                         try:
                             cur.execute(
                                 write_query,
@@ -563,7 +568,8 @@ class GrapheneMetanode:
                             )
                             break
                         except OperationalError:
-                            dprint("Race condition at", int(time.time()))
+                            dprint("Race condition at", int(time.time()), "at line", get_linenumber())
+                            time.sleep(min(5, 1.01**pause - 1))
                         except Exception as error:  # JSONDecodeError ?
                             dprint(
                                 "maven error...",
@@ -577,15 +583,20 @@ class GrapheneMetanode:
                                 maven_free.value,
                             )
                 else:
+                    pause = 0
                     while True:
+                        pause += 1
                         try:
                             con = connect(self.constants.chain.DATABASE)
                             cur = con.cursor()
                             cur.execute(read_query, read_values)
                             break
                         except OperationalError:
-                            dprint("Race condition at", int(time.time()))
+                            dprint("Race condition at", int(time.time()), "at line", get_linenumber())
+                            time.sleep(min(5, 1.01**pause - 1))
+                    pause = 0
                     while True:
+                        pause += 1
                         try:
                             cur.execute(
                                 write_query,
@@ -600,7 +611,8 @@ class GrapheneMetanode:
                             )
                             break
                         except OperationalError:
-                            dprint("Race condition at", int(time.time()))
+                            dprint("Race condition at", int(time.time()), "at line", get_linenumber())
+                            time.sleep(min(5, 1.01**pause - 1))
                         except Exception as error:  # JSONDecodeError ?
                             dprint(
                                 "maven error...",
@@ -806,19 +818,24 @@ class GrapheneMetanode:
             if table == "timing" and tracker not in ["blocktime", "blocknum"]:
                 # update server time to current time.time()
                 if tracker == "server":
+                    pause = 0
                     while True:
+                        pause += 1
                         try:
                             update_query = f"UPDATE timing SET server=?"
                             update_values = (time.time(),)
                             cur.execute(update_query, update_values)
                             break
                         except OperationalError:
-                            dprint("Race condition at", int(time.time()))
+                            dprint("Race condition at", int(time.time()), "at line", get_linenumber())
+                            time.sleep(min(5, 1.01**pause - 1))
                         except Exception as error:
                             dprint(trace(error))
                 # timing trackers which require median statistic
                 elif tracker == "read":
+                    pause = 0
                     while True:
+                        pause += 1
                         try:
                             select_query = f"""SELECT read FROM maven_timing"""
                             select_values = tuple()
@@ -832,12 +849,15 @@ class GrapheneMetanode:
                             )
                             break
                         except OperationalError:
-                            dprint("Race condition at", int(time.time()))
+                            dprint("Race condition at", int(time.time()), "at line", get_linenumber())
+                            time.sleep(min(5, 1.01**pause - 1))
                         except Exception as error:
                             dprint(trace(error))
                 # timing trackers which require median statistic
                 elif tracker in ["handshake", "ping"]:
+                    pause = 0
                     while True:
+                        pause += 1
                         try:
                             select_query = f"""SELECT {tracker} FROM nodes WHERE code=200"""
                             select_values = tuple()
@@ -851,11 +871,14 @@ class GrapheneMetanode:
                             )
                             break
                         except OperationalError:
-                            dprint("Race condition at", int(time.time()))
+                            dprint("Race condition at", int(time.time()), "at line", get_linenumber())
+                            time.sleep(min(5, 1.01**pause - 1))
                         except Exception as error:
                             dprint(trace(error))
             elif tracker == "cancels":
+                pause = 0
                 while True:
+                    pause += 1
                     try:
                         # the normal way of handling most tracker updates at oracle level
                         select_query = f"""SELECT {tracker} FROM maven_{table} WHERE name=?"""
@@ -866,9 +889,12 @@ class GrapheneMetanode:
                         # ~ print(cur.fetchall())
                         break
                     except OperationalError:
-                        dprint("Race condition at", int(time.time()))
+                        dprint("Race condition at", int(time.time()), "at line", get_linenumber())
+                        time.sleep(min(5, 1.01**pause - 1))
                 # update_values are atomic
+                pause = 0
                 while True:
+                    pause += 1
                     try:
                         cur.execute(
                             update_query,
@@ -889,6 +915,7 @@ class GrapheneMetanode:
                         break
                     except OperationalError:
                         dprint("Race Error", int(time.time()), tracker, table, row)
+                        time.sleep(min(5, 1.01**pause - 1))
                     except StatisticsError:
                         dprint("Statistics Error", tracker, table, row)
                         break
@@ -899,7 +926,9 @@ class GrapheneMetanode:
                         dprint(trace(error), tracker, table, row)
                         break
             else:
+                pause = 0
                 while True:
+                    pause += 1
                     try:
                         # the normal way of handling most tracker updates at oracle level
                         select_query = f"""SELECT {tracker} FROM maven_{table} WHERE name=?"""
@@ -910,9 +939,12 @@ class GrapheneMetanode:
                         # ~ print(cur.fetchall())
                         break
                     except OperationalError:
-                        dprint("Race condition at", int(time.time()))
+                        dprint("Race condition at", int(time.time()), "at line", get_linenumber())
+                        time.sleep(min(5, 1.01**pause - 1))
                 # update_values are atomic
+                pause = 0
                 while True:
+                    pause += 1
                     try:
                         cur.execute(
                             update_query,
@@ -933,6 +965,7 @@ class GrapheneMetanode:
                         break
                     except OperationalError:
                         dprint("Race Error", int(time.time()), tracker, table, row)
+                        time.sleep(min(5, 1.01**pause - 1))
                     except StatisticsError:
                         dprint("Statistics Error", tracker, table, row)
                         break
@@ -955,7 +988,7 @@ class GrapheneMetanode:
 
         # localize constants
         all_pairs = self.constants.chain.ALL_PAIRS
-        pause = self.constants.metanode.ORACLE_PAUSE
+        oracle_pause = self.constants.metanode.ORACLE_PAUSE
         account = self.constants.chain.ACCOUNT
         assets = self.constants.chain.ASSETS
         pairs = self.constants.chain.PAIRS
@@ -965,43 +998,43 @@ class GrapheneMetanode:
                 # account writes
                 trackers = ["fees_account", "ltm"]
                 for tracker in trackers:
-                    blip(pause)
+                    blip(oracle_pause)
                     oracle_update(self, tracker, account)
                 # asset writes
                 for asset in assets:
                     trackers = ["supply", "fees_asset"]
                     for tracker in trackers:
-                        blip(pause)
+                        blip(oracle_pause)
                         oracle_update(self, tracker, asset)
                 # timing writes
                 for tracker in ["ping", "handshake"]:
-                    blip(pause)
+                    blip(oracle_pause)
                     oracle_update(self, tracker, account)
             # high frequency
             else:
                 # updates to timing; these have no row key
                 trackers = ["server", "blocknum", "blocktime", "read"]
                 for tracker in trackers:
-                    blip(pause)
+                    blip(oracle_pause)
                     oracle_update(self, tracker, account)
                 # update account cancel operations; these are not split by pair
-                blip(pause)
+                blip(oracle_pause)
                 oracle_update(self, "cancels", account)
                 # updates to each row in pair table
                 trackers = ["last", "book", "history", "fills", "opens", "ops"]
                 for pair in pairs:
                     for tracker in trackers:
-                        blip(pause)
+                        blip(oracle_pause)
                         oracle_update(self, tracker, pair)
                 # provide a last price for every asset back to core token
                 for pair in all_pairs:
-                    blip(pause)
+                    blip(oracle_pause)
                     oracle_update(self, "last", pair)
                 # updates to each row in asset table
                 trackers = ["balance"]
                 for asset in assets:
                     for tracker in trackers:
-                        blip(pause)
+                        blip(oracle_pause)
                         oracle_update(self, tracker, asset)
             # return an iteration signal to the parent process
             signal_oracle.value += 1

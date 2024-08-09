@@ -463,7 +463,7 @@ class Sql:
                 return data
             except OperationalError:
                 if DEV:
-                    print("Race condition at", int(time.time()))
+                    print(f"Race condition at {int(time.time())} during Sql.execute, pausing for {min(5, 1.01**pause - 1):2f} secs", )
                 # ascending pause here prevents excess cpu on corruption of database
                 # and allows for decreased load during race condition
                 time.sleep(min(5, 1.01**pause - 1))

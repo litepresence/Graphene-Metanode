@@ -34,19 +34,17 @@ from .graphene_signing import (
     sign_transaction,
     verify_transaction,
 )
-from .graphene_utils import it, to_iso_date, trace
+from .graphene_utils import it, to_iso_date, trace, log_print
 
 DEV = False
 DEVLOG = False
 
 def dprint(*args, **kwargs):
     """dprint for development"""
-    if DEV:
-        print(*args, **kwargs)
     if DEVLOG:
-        with open("~/metanodelog.txt", "a") as handle:
-            handle.write(" ".join(str(i) for i in args) + "\n")
-            handle.close()
+        log_print(*args, **kwargs)
+    elif DEV:
+        print(*args, **kwargs)
 
 
 class GrapheneAuth:
@@ -316,8 +314,7 @@ class GrapheneAuth:
             signal.value = 1
         except Exception as error:
             if DEVLOG:
-                with open("~/metanodelog.txt", "a") as handle:
-                    handle.write(time.ctime() + "\n" + trace(error))
+                log_print(trace(error))
             print(error)
             print("^" * 100)
         remote_msg.value = msg

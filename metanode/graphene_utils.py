@@ -18,9 +18,23 @@ import time
 from calendar import timegm
 from datetime import datetime
 from random import random
-from time import strptime
+from time import strptime, ctime
 from traceback import format_exc
 from typing import Dict
+
+
+def log_print(*args, **kwargs):
+    """
+    log to file and print
+    """
+    with open("metanode_log.txt", "a+") as handle:
+        handle.seek(0)
+        content = handle.read()
+        content = content + str(ctime()) + "  -  " + " ".join(str(i) for i in args) + kwargs.get("end", "\n")
+        handle.seek(0)
+        handle.write(content[-2_000_000:])  # truncate to 2MB
+        handle.close()
+    print(*args, **kwargs)
 
 
 def trace(error):
