@@ -17,7 +17,7 @@ setup(
     author="litepresence",
     author_email="finitestate@tutamail.com",
     packages=["metanode"],
-    install_requires=["websocket-client >= 1.2.3", "requests", "secp256k1 <= 0.13.2", "ecdsa==0.17.0"],
+    install_requires=["websocket-client >= 1.2.3", "requests", "secp256k1 <= 0.13.2", "ecdsa==0.17.0", "psutil"],
     include_package_data=True,
     license='MIT',
     classifiers=[

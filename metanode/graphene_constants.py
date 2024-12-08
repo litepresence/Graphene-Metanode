@@ -16,6 +16,7 @@ GLOBAL CONSTANTS AND USER CONFIGURATION FOR DEX CONNECTIVITY
 import os
 from decimal import Decimal
 from random import randint
+import sys
 
 # GRAPHENE MODULES
 from .graphene_utils import assets_from_pairs, invert_pairs, it, sls
@@ -55,7 +56,7 @@ class GrapheneConstants:
                 "core": "TEST",
                 "config": PeerplaysTestnetConfig,
                 # "7c1c72eb738b3ff1870350f85daca27e2d0f5dd25af27df7475fbd92815e421e"
-                "id":"195d4e865e3a27d2b204de759341e4738f778dd5c4e21860c7e8bf1bd9c79203"
+                "id": "195d4e865e3a27d2b204de759341e4738f778dd5c4e21860c7e8bf1bd9c79203",
             },
             "bitshares": {
                 "core": "BTS",
@@ -103,7 +104,9 @@ class GrapheneConstants:
                 i for i in self.chain.PAIRS if i not in invert_pairs(self.chain.PAIRS)
             ]
             self.chain.INVERTED_PAIRS = invert_pairs(self.chain.PAIRS)
-            self.chain.ASSETS = list(set(assets_from_pairs(self.chain.PAIRS) + [self.chain.CORE]))
+            self.chain.ASSETS = list(
+                set(assets_from_pairs(self.chain.PAIRS) + [self.chain.CORE])
+            )
             self.chain.CORE_PAIRS = [
                 i
                 for i in [
@@ -305,7 +308,7 @@ class PeerplaysConfig:
     configuration details specific to peerplays mainnet
     """
 
-    ACCOUNT = "test1" # for example purposes
+    ACCOUNT = "test1"  # for example purposes
     NODES = [
         "wss://ca.peerplays.info/",
         "wss://de.peerplays.xyz/",
@@ -314,7 +317,7 @@ class PeerplaysConfig:
         "wss://peerplaysblockchain.net/mainnet/api",
         "ws://witness.serverpit.com:8090",
         "ws://api.i9networks.net.br:8090",
-        "wss://node.mainnet.peerblock.trade"
+        "wss://node.mainnet.peerblock.trade",
     ]
     PAIRS = ["BTC-PPY", "HIVE-PPY", "HBD-PPY"]
 
@@ -325,7 +328,10 @@ class PeerplaysTestnetConfig:
     """
 
     ACCOUNT = "litepresence1"
-    NODES = ["wss://testnet.peerplays.download/api"]
+    NODES = [
+        "wss://testnet.peerplays.download/api",
+        "wss://testnet-ge.peerplays.download/api",
+    ]
     PAIRS = ["TEST-ABC", "TEST-DEFG"]
 
 

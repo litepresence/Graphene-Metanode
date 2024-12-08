@@ -21,20 +21,43 @@ from random import random
 from time import strptime, ctime
 from traceback import format_exc
 from typing import Dict
+import hashlib
+
+PROCESS_START = int(time.time() * 1000)
 
 
-def log_print(*args, **kwargs):
+def timestamp_to_color(timestamp: int) -> int:
     """
-    log to file and print
+    Converts a Unix timestamp into a unique (mostly) 256-color value.
+
+    Uses a SHA256 hash of the timestamp, then reduces the hash
+    to a number between 0 and 255 by taking modulo 256 of the resulting integer.
+
+    Parameters:
+    - timestamp: int - The Unix timestamp (seconds since the epoch).
+
+    Returns:
+    - int: A color value between 0 and 255.
     """
-    with open("metanode_log.txt", "a+") as handle:
-        handle.seek(0)
-        content = handle.read()
-        content = content + str(ctime()) + "  -  " + " ".join(str(i) for i in args) + kwargs.get("end", "\n")
-        handle.seek(0)
-        handle.write(content[-2_000_000:])  # truncate to 2MB
-        handle.close()
-    print(*args, **kwargs)
+    # Convert the timestamp to bytes and hash it using SHA256
+    hashed_timestamp = hashlib.sha256(str(timestamp).encode("utf-8")).hexdigest()
+
+    # Convert the hash to an integer
+    hash_int = int(hashed_timestamp, 16)
+
+    # Return a color value between 0 and 255 by taking modulo 256
+    color_value = hash_int % 256
+    return color_value
+
+
+def logger(*args, file="metanode_log.txt", identifier=PROCESS_START, **_):
+    """log + print for development"""
+    with open(file, "a") as handle:
+        handle.write(
+            f"\033[38;5;{timestamp_to_color(identifier)}m{identifier}\033[m    "
+            + " ".join(str(i) for i in args)
+            + "\n"
+        )
 
 
 def trace(error):
@@ -196,7 +219,9 @@ def it(style, text: str, background: int = None) -> str:
     def hex_to_rgb(value):
         value = value.lstrip("#")
         lenv = len(value)
-        return tuple(int(value[i : i + lenv // 3], 16) for i in range(0, lenv, lenv // 3))
+        return tuple(
+            int(value[i : i + lenv // 3], 16) for i in range(0, lenv, lenv // 3)
+        )
 
     # monokai
     emphasis = {
@@ -243,7 +268,9 @@ def at(
     to clear a terminal area at specific location of specified size
     and print a multi line text in that area
     """
-    final = "".join(f"\033[{spot[1] + i};{spot[0]}H" + " " * spot[2] for i in range(spot[3]))
+    final = "".join(
+        f"\033[{spot[1] + i};{spot[0]}H" + " " * spot[2] for i in range(spot[3])
+    )
     for ldx, line in enumerate(data.split("\n")):
         final += f"\033[{spot[1]+ldx};{spot[0]}H" + line
     return final

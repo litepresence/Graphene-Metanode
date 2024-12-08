@@ -34,15 +34,19 @@ from .graphene_signing import (
     sign_transaction,
     verify_transaction,
 )
-from .graphene_utils import it, to_iso_date, trace, log_print
+from .graphene_utils import it, to_iso_date, trace, logger
 
 DEV = False
 DEVLOG = False
 
+if DEVLOG:
+    PRINT_FILE = open("metanode_log_auth.txt", "w")
+
+
 def dprint(*args, **kwargs):
     """dprint for development"""
     if DEVLOG:
-        log_print(*args, **kwargs)
+        print(*args, **kwargs, file=PRINT_FILE)
     elif DEV:
         print(*args, **kwargs)
 
@@ -111,7 +115,9 @@ class GrapheneAuth:
                     }
                 )
         except:
-            dprint("ERROR PROTOTYPING AN ORDER!  metanode may not be started.  falling back to bare-bones order.")
+            dprint(
+                "ERROR PROTOTYPING AN ORDER!  metanode may not be started.  falling back to bare-bones order."
+            )
             proto["op"] = ""
             proto["nodes"] = whitelist
             proto["header"] = {"wif": self.wif}
@@ -132,9 +138,15 @@ class GrapheneAuth:
             result = {}
         dprint("Brokering order:")
         for key, value in order.items():
-            dprint(key, {k:v for k, v in value.items() if k != "wif"} if isinstance(value, dict) else value)
+            dprint(
+                key,
+                {k: v for k, v in value.items() if k != "wif"}
+                if isinstance(value, dict)
+                else value,
+            )
         dprint("starting RPC/RPS")
-        self.rpc = RemoteProcedureCall(self.constants, session=True)
+        # We only need a RPS if there is a trx to be signed, otherwise a RPC suffices
+        self.rpc = RemoteProcedureCall(self.constants, session=order["edicts"][0]["op"] != "login")
         signal = Value("i", 0)
         auth = Value("i", 0)
         manager = Manager()
@@ -143,13 +155,19 @@ class GrapheneAuth:
         iteration = 0
         while (iteration < self.constants.signing.ATTEMPTS) and not signal.value:
             iteration += 1
-            dprint("\nmanualSIGNING authentication attempt:", iteration, time.ctime(), "\n")
-            child = Process(target=self._execute, args=(signal, auth, trx_data, msg, order))
+            dprint(
+                "\nmanualSIGNING authentication attempt:", iteration, time.ctime(), "\n"
+            )
+            child = Process(
+                target=self._execute, args=(signal, auth, trx_data, msg, order)
+            )
+            child.name = "hummingbot metanode graphene_auth execute"
             child.daemon = False
             dprint("starting _execute...")
             child.start()
             # means main script will not continue till child done
             child.join(self.constants.signing.PROCESS_TIMEOUT)
+            child.terminate()
         dprint("trx_data.value", trx_data.value)
         if self.carry_prints:
             print(re.sub(r"\033\[.*?m", "", msg.value))
@@ -168,7 +186,10 @@ class GrapheneAuth:
                     i
                     for j in [
                         [o[1]["order"] for o in r["params"][1][0]["trx"]["operations"]]
-                        for r in [json.loads(x) for x in trx_data.value.split("<<<CLIP>>>")[1:]]
+                        for r in [
+                            json.loads(x)
+                            for x in trx_data.value.split("<<<CLIP>>>")[1:]
+                        ]
                     ]
                     for i in j
                 ]
@@ -205,13 +226,17 @@ class GrapheneAuth:
                 dprint("serializing")
                 trx, message = serialize_transaction(trx, self.constants, self.rpc)
                 dprint("signing")
-                signed_tx = sign_transaction(trx, message, wif, self.constants.chain.PREFIX)
+                signed_tx = sign_transaction(
+                    trx, message, wif, self.constants.chain.PREFIX
+                )
                 dprint("verifying")
                 signed_tx = verify_transaction(signed_tx, wif, self.constants)
                 if self.broadcast:
                     dprint("sending")
                     trx_data.value += "<<<CLIP>>>" + json.dumps(
-                        self.rpc.broadcast_transaction(signed_tx, order["header"]["client_order_id"])
+                        self.rpc.broadcast_transaction(
+                            signed_tx, order["header"]["client_order_id"]
+                        )
                     )
                 dprint("done")
                 auth.value = 1
@@ -314,7 +339,7 @@ class GrapheneAuth:
             signal.value = 1
         except Exception as error:
             if DEVLOG:
-                log_print(trace(error))
+                logger(trace(error))
             print(error)
             print("^" * 100)
         remote_msg.value = msg
@@ -477,7 +502,9 @@ class GrapheneAuth:
                         buy_edicts[idx]["amount"] *= scale
             # autoscale sell edicts
             if sell_edicts:
-                asset_total = sum(sell_edicts[idx]["amount"] for idx, _ in enumerate(sell_edicts))
+                asset_total = sum(
+                    sell_edicts[idx]["amount"] for idx, _ in enumerate(sell_edicts)
+                )
                 scale = (
                     self.constants.core.DECIMAL_SIXSIG
                     * decimal(asset_balance)
@@ -521,7 +548,9 @@ class GrapheneAuth:
                         buy_edicts[idx]["amount"] *= scale
             # when BTS is the asset don't sell the last 2
             if asset_id == "1.3.0" and sell_edicts:
-                bts_total = sum(sell_edicts[idx]["amount"] for idx, _ in enumerate(sell_edicts))
+                bts_total = sum(
+                    sell_edicts[idx]["amount"] for idx, _ in enumerate(sell_edicts)
+                )
                 scale = (
                     self.constants.core.DECIMAL_SIXSIG
                     * decimal(max(0, (core_balance - 2)))
@@ -570,11 +599,15 @@ class GrapheneAuth:
             if create_edicts[idx]["op"] == "buy":
                 min_to_receive["amount"] = int(amount * 10**asset_precision)
                 min_to_receive["asset_id"] = asset_id
-                amount_to_sell["amount"] = int(amount * price * 10**currency_precision)
+                amount_to_sell["amount"] = int(
+                    amount * price * 10**currency_precision
+                )
                 amount_to_sell["asset_id"] = currency_id
             # means SELLING assets RECEIVING currency
             if create_edicts[idx]["op"] == "sell":
-                min_to_receive["amount"] = int(amount * price * 10**currency_precision)
+                min_to_receive["amount"] = int(
+                    amount * price * 10**currency_precision
+                )
                 min_to_receive["asset_id"] = currency_id
                 amount_to_sell["amount"] = int(amount * 10**asset_precision)
                 amount_to_sell["asset_id"] = asset_id

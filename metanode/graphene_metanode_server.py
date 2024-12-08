@@ -38,20 +38,32 @@ from sqlite3 import OperationalError, connect
 from statistics import StatisticsError, median, mode, multimode
 from threading import Thread
 from inspect import currentframe
+import sys
+import os
+import psutil
 
 # GRAPHENE MODULES
 from .graphene_constants import GrapheneConstants
 from .graphene_metanode_client import GrapheneTrustlessClient
 from .graphene_rpc import RemoteProcedureCall
 from .graphene_sql import SELECTS, Sql
-from .graphene_utils import blip, invert_pairs, it, jprint, precision, trace
+from .graphene_utils import (
+    blip,
+    invert_pairs,
+    it,
+    jprint,
+    precision,
+    trace,
+    timestamp_to_color,
+    logger,
+)
 
-DEV = True
+DEV = False
 DEV_PAUSE = False
-LOG = False  # FIXME seems to be buggy; logs one thing hundreds of times; race conditions?
+LOG = False
 
-if LOG:
-    from .graphene_utils import log_print as print
+
+PROCESS_START = int(time.time() * 1000)
 
 
 def get_linenumber():
@@ -59,10 +71,16 @@ def get_linenumber():
     return cf.f_back.f_lineno
 
 
-def dprint(*data):
-    """print for development"""
-    if DEV:
+def dprint(*data, dev_override=False):
+    """lprint for development"""
+    if DEV or dev_override:
+        if LOG:
+            logger(*data, file="metanode_log.txt", identifier=PROCESS_START)
         print(*data)
+
+
+def lprint(*data):
+    dprint(*data, dev_override=True)
 
 
 def dinput(data):
@@ -87,7 +105,7 @@ class GrapheneMetanode:
 
     def jprint_db(self):
         """
-        Pretty (fairly) print sql database
+        Pretty (fairly) lprint sql database
         """
         if DEV:
             for query in SELECTS:
@@ -101,7 +119,7 @@ class GrapheneMetanode:
         use sls(); sorted(list(set())) idiom on user config
         during development pause at each stage
         """
-        print("BOOTING METANODE")
+        lprint("BOOTING METANODE")
         killswitch = Value("i", 0)
         signal_latency = Value("i", 0)
         signal_oracle = Value("i", 0)
@@ -109,20 +127,22 @@ class GrapheneMetanode:
         maven_free = [Value("i", 1) for _ in range(self.constants.metanode.MAVENS)]
         dinput("Press Enter to deploy database task")
         self.sql.restart()
-        print(it("purple", "METANODE DATABASE INITIALIZED"))
+        lprint(it("purple", "METANODE DATABASE INITIALIZED"))
         self.jprint_db()
         dinput("Press Enter to deploy latency task")
         self.jprint_db()
-        latency_thread = Thread(target=self.latency_task, args=(signal_latency, killswitch))
+        latency_thread = Thread(
+            target=self.latency_task, args=(signal_latency, killswitch)
+        )
         latency_thread.start()
         self.jprint_db()
         dinput("Press Enter to deploy cache task")
         self.cache_task()
-        print(it("purple", "METANODE CACHE INITIALIZED"))
+        lprint(it("purple", "METANODE CACHE INITIALIZED"))
         while not bool(signal_latency.value):
             time.sleep(1)
             continue
-        print(it("purple", "METANODE LATENCY INITIALIZED"))
+        lprint(it("purple", "METANODE LATENCY INITIALIZED"))
         self.jprint_db()
         dinput("Press Enter to deploy maven_id task")
         maven_processes = {}
@@ -132,22 +152,25 @@ class GrapheneMetanode:
                 args=(signal_maven, maven_free[maven_id], maven_id),
                 daemon=True,
             )
+            maven_processes[maven_id].name = f"hummingbot {self.constants.chain.NAME} metanode maven {maven_id}"
             maven_processes[maven_id].start()
         self.jprint_db()
-        print(it("purple", "METANODE MAVEN INITIALIZED"))
+        lprint(it("purple", "METANODE MAVEN INITIALIZED"))
         dinput("Press Enter to deploy oracle task")
         while not bool(signal_maven.value):
             blip(1)
             continue
-        oracle_thread = Thread(target=self.oracle_task, args=(signal_oracle, killswitch))
+        oracle_thread = Thread(
+            target=self.oracle_task, args=(signal_oracle, killswitch)
+        )
         oracle_thread.start()
         while not bool(signal_oracle.value):
             blip(1)
             continue
-        print(it("purple", "METANODE ORACLE INITIALIZED"))
+        lprint(it("purple", "METANODE ORACLE INITIALIZED"))
         stars = it("cyan", "*" * 28)
         msg = it("green", "METANODE INITIALIZED")
-        print(stars + "\n    " + msg + "\n" + stars)
+        lprint(stars + "\n    " + msg + "\n" + stars)
         self.initialized = True
         # maven regeneration
         iteration = 0
@@ -165,20 +188,35 @@ class GrapheneMetanode:
                 maven_processes[maven_id] = Process(
                     target=self.maven_task,
                     args=(signal_maven, maven_free[maven_id], maven_id),
-                    daemon=True
+                    daemon=True,
                 )
+                maven_processes[maven_id].name = f"hummingbot {self.constants.chain.NAME} metanode maven {maven_id}"
                 maven_processes[maven_id].start()
                 maven_free[maven_id].value = 1
             time.sleep(1)
-        print("Metanode signalled to shut down, killing all child processes...")
+        lprint(
+            f"{self.chain.NAME} Metanode signalled to shut down, killing all child processes...",
+        )
         killswitch.value = 1
         for maven in maven_processes.values():
             maven.terminate()
 
+        for child in psutil.Process().children(recursive=True):
+            child.terminate()
+        for child in psutil.Process().children(recursive=True):
+            child.wait()
+        lprint(
+            f"All {self.chain.NAME} Metanode shutdown flags set & children killed.",
+        )
+
     def running_flag(self):
         try:
-            with open(self.constants.DATABASE_FOLDER + "metanode_flags.json", "r") as handle:
-                flag = json.loads(handle.read()).get(self.constants.chain.NAME.replace("_", " "), True)
+            with open(
+                self.constants.DATABASE_FOLDER + "metanode_flags.json", "r"
+            ) as handle:
+                flag = json.loads(handle.read()).get(
+                    self.constants.chain.NAME.replace("_", " "), True
+                )
                 handle.close()
         except FileNotFoundError:
             flag = True
@@ -204,7 +242,7 @@ class GrapheneMetanode:
             ping the blockchain and return a response code to classify the interaction
             """
             try:
-                print(it("green", "latency"), it("blue", node))
+                lprint(it("green", "latency"), it("blue", node))
                 # connect to websocket and capture handshake latency
                 start = time.time()
                 # ======================================================================
@@ -226,7 +264,9 @@ class GrapheneMetanode:
                 block_latency = time.time() - blocktime.value
                 try:
                     # check if this node supports history
-                    rpc.market_history(self.constants.chain.PAIRS, depth=2)[0]  # sample_pair?
+                    rpc.market_history(self.constants.chain.PAIRS, depth=2)[
+                        0
+                    ]  # sample_pair?
                 except Exception:
                     code.value = 1001  # "NO HISTORY"
                 try:
@@ -251,7 +291,9 @@ class GrapheneMetanode:
                     code.value = 200  # "CONNECTED"
             except Exception as error:
                 code.value = 1007  # "CONNECTION FAILED"
-                dprint(str(node) + " " + str(type(error).__name__) + " " + str(error.args))
+                dprint(
+                    str(node) + " " + str(type(error).__name__) + " " + str(error.args)
+                )
                 dprint(trace(error))
 
         nodes_to_test = list(self.constants.chain.NODES)
@@ -263,7 +305,7 @@ class GrapheneMetanode:
                 nodes_to_test = [
                     choice(self.constants.chain.NODES),
                 ]
-            # print(it("green", nodes_to_test))
+            # lprint(it("green", nodes_to_test))
             nodes = {}
             codes = {}
             handshakes = {}
@@ -271,7 +313,7 @@ class GrapheneMetanode:
             blocktimes = {}
             thresher = {}
             try:
-                for node in nodes_to_test:
+                for node_idx, node in enumerate(nodes_to_test):
                     blip(0.5)
                     codes[node] = Value("i", 1008)  # "CONNECTION TIMEOUT"
                     pings[node] = Value("d", 0)
@@ -289,6 +331,7 @@ class GrapheneMetanode:
                         ),
                         daemon=True,
                     )
+                    thresher[node].name = f"hummingbot {self.constants.chain.NAME} metanode latency thresher {node_idx}"
                     # begin all the threshers at once
                     thresher[node].start()
                 time.sleep(self.constants.metanode.LATENCY_THRESHER_TIMEOUT)
@@ -343,7 +386,12 @@ class GrapheneMetanode:
                     # latency pause is per node
                     # pause but quit if the killswitch is thrown
                     start = time.time()
-                    while time.time()-start < self.constants.metanode.LATENCY_TASK_PAUSE / len(self.constants.chain.NODES) and not killswitch.value:
+                    while (
+                        time.time() - start
+                        < self.constants.metanode.LATENCY_TASK_PAUSE
+                        / len(self.constants.chain.NODES)
+                        and not killswitch.value
+                    ):
                         time.sleep(1)
 
     def cache_task(self):
@@ -368,7 +416,7 @@ class GrapheneMetanode:
             cache["assets"] = rpc.lookup_asset_symbols()
             rpc.close()
             samples[node] = json.dumps(cache)
-            print(it("yellow", f"cache {len(samples)}"))
+            lprint(it("yellow", f"cache {len(samples)}"))
 
         def thresh(cache_signal):
             """
@@ -390,7 +438,7 @@ class GrapheneMetanode:
             start = time.time()
             for idx, node in enumerate(nodes):
                 threads[node].join(timeout)
-                elapsed = time.time()-start
+                elapsed = time.time() - start
                 start = time.time()
                 timeout -= elapsed
                 if timeout <= 0:
@@ -409,7 +457,7 @@ class GrapheneMetanode:
                     if idx >= min(
                         len(self.constants.chain.NODES) - 1,
                         self.constants.metanode.MAVENS,
-                        whitelisted-1,
+                        whitelisted - 1,
                         5,
                     ):
                         data = json.loads(
@@ -497,6 +545,7 @@ class GrapheneMetanode:
         cache_signal = Value("i", 0)
         while True:
             process = Process(target=thresh, args=(cache_signal,), daemon=True)
+            process.name = f"hummingbot {self.constants.chain.NAME} metanode cache task"
             process.start()
             process.join(self.constants.metanode.CACHE_RESTART_JOIN)
             process.terminate()
@@ -507,7 +556,7 @@ class GrapheneMetanode:
 
     def maven_task(self, signal_maven, maven_free, maven_id):
         """
-        gather streaming data and place it in a list to be statistically analyized
+        gather streaming data and place it in a list to be statistically analyzed
         """
 
         def maven_update(
@@ -521,7 +570,7 @@ class GrapheneMetanode:
             """
             execute atomic sql read/edit/write to update the maven feed
             """
-            # ~ print(
+            # ~ lprint(
             # ~ it("purple", "maven"),
             # ~ tracker,
             # ~ row,
@@ -551,6 +600,7 @@ class GrapheneMetanode:
                     con = connect(self.constants.chain.DATABASE)
                     cur = con.cursor()
                     cur.execute(read_query, read_values)
+                    curfetchall = cur.fetchall()
                     pause = 0
                     while True:
                         pause += 1
@@ -560,7 +610,10 @@ class GrapheneMetanode:
                                 (
                                     (
                                         json.dumps(
-                                            (json.loads(cur.fetchall()[0][0]) + [sooth])[-mavens:]
+                                            (
+                                                json.loads(curfetchall[0][0])
+                                                + [sooth]
+                                            )[-mavens:]
                                         )
                                     ),
                                     row,
@@ -568,7 +621,12 @@ class GrapheneMetanode:
                             )
                             break
                         except OperationalError:
-                            dprint("Race condition at", int(time.time()), "at line", get_linenumber())
+                            dprint(
+                                "Race condition at",
+                                int(time.time()),
+                                "at line",
+                                get_linenumber(),
+                            )
                             time.sleep(min(5, 1.01**pause - 1))
                         except Exception as error:  # JSONDecodeError ?
                             dprint(
@@ -581,7 +639,9 @@ class GrapheneMetanode:
                                 sooth,
                                 maven_id,
                                 maven_free.value,
+                                curfetchall,
                             )
+                            time.sleep(0.1)
                 else:
                     pause = 0
                     while True:
@@ -590,9 +650,15 @@ class GrapheneMetanode:
                             con = connect(self.constants.chain.DATABASE)
                             cur = con.cursor()
                             cur.execute(read_query, read_values)
+                            curfetchall = cur.fetchall()
                             break
                         except OperationalError:
-                            dprint("Race condition at", int(time.time()), "at line", get_linenumber())
+                            dprint(
+                                "Race condition at",
+                                int(time.time()),
+                                "at line",
+                                get_linenumber(),
+                            )
                             time.sleep(min(5, 1.01**pause - 1))
                     pause = 0
                     while True:
@@ -603,7 +669,10 @@ class GrapheneMetanode:
                                 (
                                     (
                                         json.dumps(
-                                            (json.loads(cur.fetchall()[0][0]) + [sooth])[-mavens:]
+                                            (
+                                                json.loads(curfetchall[0][0])
+                                                + [sooth]
+                                            )[-mavens:]
                                         )
                                     ),
                                     row,
@@ -611,7 +680,12 @@ class GrapheneMetanode:
                             )
                             break
                         except OperationalError:
-                            dprint("Race condition at", int(time.time()), "at line", get_linenumber())
+                            dprint(
+                                "Race condition at",
+                                int(time.time()),
+                                "at line",
+                                get_linenumber(),
+                            )
                             time.sleep(min(5, 1.01**pause - 1))
                         except Exception as error:  # JSONDecodeError ?
                             dprint(
@@ -624,7 +698,10 @@ class GrapheneMetanode:
                                 sooth,
                                 maven_id,
                                 maven_free.value,
+                                curfetchall,
                             )
+                            time.sleep(0.1)
+                            #  pairs book TEST-ABC {'asks': [(1.1, 1.0)], 'bids': [(0.94999999, 1.0), (0.9, 1.0)]} 0 1
                 while True:
                     try:
                         con.commit()
@@ -638,7 +715,7 @@ class GrapheneMetanode:
 
         nodes = list(self.metanode.whitelist)
         shuffle(nodes)
-        rpc = RemoteProcedureCall(self.constants, nodes)
+        rpc = RemoteProcedureCall(self.constants, nodes or None)
         trackers = {
             "ltm": rpc.is_ltm,
             "fees_account": rpc.fees_account,
@@ -698,7 +775,9 @@ class GrapheneMetanode:
                     for tracker in ["supply", "fees_asset"]:
                         blip(pause)
                         sooth = trackers[tracker]()  # WSS RPC
-                        maven_update(self, sooth[asset], tracker, asset, maven_id, maven_free)
+                        maven_update(
+                            self, sooth[asset], tracker, asset, maven_id, maven_free
+                        )
             # high frequency
             else:
                 # pair calls for account buy/sell/cancel operations and open orders
@@ -717,7 +796,9 @@ class GrapheneMetanode:
                             maven_free,
                         )
                     for pair in pairs:
-                        maven_update(self, sooth[pair], tracker, pair, maven_id, maven_free)
+                        maven_update(
+                            self, sooth[pair], tracker, pair, maven_id, maven_free
+                        )
                 #  pair calls for last, order book, fill orders, and market history
                 #  NOTE the creation if each sooth from RPC is pair specific
                 for tracker in ["last", "book", "fills", "history"]:
@@ -725,7 +806,9 @@ class GrapheneMetanode:
                         try:
                             blip(pause)
                             sooth = trackers[tracker](pair)  # WSS RPC
-                            maven_update(self, sooth, tracker, pair, maven_id, maven_free)
+                            maven_update(
+                                self, sooth, tracker, pair, maven_id, maven_free
+                            )
                         except Exception as error:
                             dprint(trace(error))
                         # add the invert last price for every trading pair
@@ -769,12 +852,14 @@ class GrapheneMetanode:
                 blip(pause)
                 sooth = trackers["balance"]()  # WSS RPC
                 for asset in self.constants.chain.ASSETS:
-                    maven_update(self, sooth[asset], "balance", asset, maven_id, maven_free)
+                    maven_update(
+                        self, sooth[asset], "balance", asset, maven_id, maven_free
+                    )
                 # blocktime and blocknum calls in maven timing table
                 for tracker in ["blocktime", "blocknum"]:
                     blip(pause)
                     sooth = trackers[tracker]()  # WSS RPC
-                    # ~ print("maven " + tracker + ": " + it("red", str(sooth).upper()))
+                    # ~ lprint("maven " + tracker + ": " + it("red", str(sooth).upper()))
                     maven_update(
                         self,
                         sooth,
@@ -804,7 +889,7 @@ class GrapheneMetanode:
             execute atomic sql read/edit/write to update the oracle feed
             read table / row of maven_xyz, write statistical mode to xyz table / row
             """
-            # ~ print(it("red", "oracle"), tracker, row)
+            # ~ lprint(it("red", "oracle"), tracker, row)
             # ==========================================================================
             # SECURITY SQL hardcoded dict prevents injection at fstring
             # ==========================================================================
@@ -827,15 +912,19 @@ class GrapheneMetanode:
                             cur.execute(update_query, update_values)
                             break
                         except OperationalError:
-                            dprint("Race condition at", int(time.time()), "at line", get_linenumber())
+                            dprint(
+                                "Race condition at",
+                                int(time.time()),
+                                "at line",
+                                get_linenumber(),
+                            )
                             time.sleep(min(5, 1.01**pause - 1))
                         except Exception as error:
                             dprint(trace(error))
                 # timing trackers which require median statistic
                 elif tracker == "read":
-                    pause = 0
+                    pause = 1
                     while True:
-                        pause += 1
                         try:
                             select_query = f"""SELECT read FROM maven_timing"""
                             select_values = tuple()
@@ -849,17 +938,27 @@ class GrapheneMetanode:
                             )
                             break
                         except OperationalError:
-                            dprint("Race condition at", int(time.time()), "at line", get_linenumber())
+                            dprint(
+                                "Race condition at",
+                                int(time.time()),
+                                "at line",
+                                get_linenumber(),
+                            )
                             time.sleep(min(5, 1.01**pause - 1))
+                            pause += 1
+                        except StatisticsError:
+                            dprint("Statistics Error during oracle /w tracker `read`")
+                            time.sleep(1)
                         except Exception as error:
                             dprint(trace(error))
                 # timing trackers which require median statistic
                 elif tracker in ["handshake", "ping"]:
-                    pause = 0
+                    pause = 1
                     while True:
-                        pause += 1
                         try:
-                            select_query = f"""SELECT {tracker} FROM nodes WHERE code=200"""
+                            select_query = (
+                                f"""SELECT {tracker} FROM nodes WHERE code=200"""
+                            )
                             select_values = tuple()
                             update_query = f"""UPDATE timing SET {tracker}=?"""
                             # update_values are atomic
@@ -871,8 +970,19 @@ class GrapheneMetanode:
                             )
                             break
                         except OperationalError:
-                            dprint("Race condition at", int(time.time()), "at line", get_linenumber())
+                            dprint(
+                                "Race condition at",
+                                int(time.time()),
+                                "at line",
+                                get_linenumber(),
+                            )
                             time.sleep(min(5, 1.01**pause - 1))
+                            pause += 1
+                        except StatisticsError:
+                            dprint(
+                                f"Statistics Error during oracle /w tracker `{tracker}`"
+                            )
+                            time.sleep(1)
                         except Exception as error:
                             dprint(trace(error))
             elif tracker == "cancels":
@@ -881,15 +991,25 @@ class GrapheneMetanode:
                     pause += 1
                     try:
                         # the normal way of handling most tracker updates at oracle level
-                        select_query = f"""SELECT {tracker} FROM maven_{table} WHERE name=?"""
+                        select_query = (
+                            f"""SELECT {tracker} FROM maven_{table} WHERE name=?"""
+                        )
                         select_values = (row,)
-                        update_query = f"""UPDATE {table} SET {tracker}=? WHERE name=?"""
+                        update_query = (
+                            f"""UPDATE {table} SET {tracker}=? WHERE name=?"""
+                        )
                         cur.execute(select_query, select_values)
+                        curfetchall = cur.fetchall()
                         # ~ if tracker == "fills":
-                        # ~ print(cur.fetchall())
+                        # ~ lprint(cur.fetchall())
                         break
                     except OperationalError:
-                        dprint("Race condition at", int(time.time()), "at line", get_linenumber())
+                        dprint(
+                            "Race condition at",
+                            int(time.time()),
+                            "at line",
+                            get_linenumber(),
+                        )
                         time.sleep(min(5, 1.01**pause - 1))
                 # update_values are atomic
                 pause = 0
@@ -904,7 +1024,9 @@ class GrapheneMetanode:
                                         mode(
                                             [
                                                 json.dumps(i)
-                                                for i in json.loads(cur.fetchall()[0][0])
+                                                for i in json.loads(
+                                                    curfetchall[0][0]
+                                                )
                                             ]
                                         )
                                     )
@@ -914,16 +1036,16 @@ class GrapheneMetanode:
                         )
                         break
                     except OperationalError:
-                        dprint("Race Error", int(time.time()), tracker, table, row)
+                        dprint("Race Error", int(time.time()), tracker, table, row, curfetchall)
                         time.sleep(min(5, 1.01**pause - 1))
                     except StatisticsError:
-                        dprint("Statistics Error", tracker, table, row)
+                        dprint("Statistics Error", tracker, table, row, curfetchall)
                         break
                     except IndexError:
-                        dprint("Index Error", tracker, table, row)
+                        dprint("Index Error", tracker, table, row, curfetchall)
                         break
                     except Exception as error:
-                        dprint(trace(error), tracker, table, row)
+                        dprint(trace(error), tracker, table, row, curfetchall)
                         break
             else:
                 pause = 0
@@ -931,15 +1053,25 @@ class GrapheneMetanode:
                     pause += 1
                     try:
                         # the normal way of handling most tracker updates at oracle level
-                        select_query = f"""SELECT {tracker} FROM maven_{table} WHERE name=?"""
+                        select_query = (
+                            f"""SELECT {tracker} FROM maven_{table} WHERE name=?"""
+                        )
                         select_values = (row,)
-                        update_query = f"""UPDATE {table} SET {tracker}=? WHERE name=?"""
+                        update_query = (
+                            f"""UPDATE {table} SET {tracker}=? WHERE name=?"""
+                        )
                         cur.execute(select_query, select_values)
+                        curfetchall = cur.fetchall()
                         # ~ if tracker == "fills":
-                        # ~ print(cur.fetchall())
+                        # ~ lprint(cur.fetchall())
                         break
                     except OperationalError:
-                        dprint("Race condition at", int(time.time()), "at line", get_linenumber())
+                        dprint(
+                            "Race condition at",
+                            int(time.time()),
+                            "at line",
+                            get_linenumber(),
+                        )
                         time.sleep(min(5, 1.01**pause - 1))
                 # update_values are atomic
                 pause = 0
@@ -954,7 +1086,9 @@ class GrapheneMetanode:
                                         mode(
                                             [
                                                 json.dumps(i)
-                                                for i in json.loads(cur.fetchall()[0][0])
+                                                for i in json.loads(
+                                                    curfetchall[0][0]
+                                                )
                                             ]
                                         )
                                     )
@@ -964,16 +1098,16 @@ class GrapheneMetanode:
                         )
                         break
                     except OperationalError:
-                        dprint("Race Error", int(time.time()), tracker, table, row)
+                        dprint("Race Error", int(time.time()), tracker, table, row, curfetchall)
                         time.sleep(min(5, 1.01**pause - 1))
                     except StatisticsError:
-                        dprint("Statistics Error", tracker, table, row)
+                        dprint("Statistics Error", tracker, table, row, curfetchall)
                         break
                     except IndexError:
-                        dprint("Index Error", tracker, table, row)
+                        dprint("Index Error", tracker, table, row, curfetchall)
                         break
                     except Exception as error:
-                        dprint(trace(error), tracker, table, row)
+                        dprint(trace(error), tracker, table, row, curfetchall)
                         break
             while True:
                 try:
@@ -1048,9 +1182,9 @@ def unit_test():
     dispatch = {str(idx): chain for idx, chain in enumerate(constants.core.CHAINS)}
     for key, value in dispatch.items():
         if "testnet" not in value:
-            print(key + ": " + it("blue", value))
+            lprint(key + ": " + it("blue", value))
         else:
-            print(key + ": " + it("purple", value))
+            lprint(key + ": " + it("purple", value))
     chain = dispatch[input("Enter choice: ")]
     constants = GrapheneConstants(chain)
     metanode_instance = GrapheneMetanode(constants)

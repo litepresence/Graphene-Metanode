@@ -4,4 +4,6 @@
 /metanode/database
 /metanode/__pycache__
 log.txt
+metanode_log.txt
+metanode_rpc_log.txt
 

@@ -34,16 +34,17 @@ def sample_orders(auth, constants, pair, active):
     order3["edicts"] = [
         {
             "op": "buy",
-            "amount": 1,
-            "price": 0.9,
+            "amount": 1.1,
+            "price": 1.5,
+            # "price": 0.9,
             "expiration": 0,
         },
-        {
-            "op": "sell",
-            "amount": 1,
-            "price": 1.1,
-            "expiration": 0,
-        },
+        # {
+        #     "op": "sell",
+        #     "amount": 1,
+        #     "price": 1.2,
+        #     "expiration": 0,
+        # },
     ]
     # query open orders from the metanode and cancel 2 of them
     metanode = GrapheneTrustlessClient(constants)

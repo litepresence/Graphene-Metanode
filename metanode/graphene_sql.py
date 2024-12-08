@@ -240,15 +240,17 @@ class Sql:
         # create database folder
         os.makedirs(self.constants.core.PATH + "/database", exist_ok=True)
         # user input w/ warning
-        # print("\033c")
-        # print(it("red", "WARNING THIS SCRIPT WILL RESTART DATABASE AND ERASE ALL DATA\n"))
+        # print("\033c", )
+        # print(it("red", "WARNING THIS SCRIPT WILL RESTART DATABASE AND ERASE ALL DATA\n"), )
         # erase the database
         try:
             os.remove(self.constants.chain.DATABASE)
         except FileNotFoundError:
             pass
-        # print("creating sqlite3:", it("green", self.constants.chain.DATABASE), "\n")
-        print("creating sqlite3...")
+        # print("creating sqlite3:", it("green", self.constants.chain.DATABASE), "\n", )
+        print(
+            "creating sqlite3...",
+        )
         # initialize insert operations with chain specific configuration
         inserts = [
             (
@@ -407,8 +409,12 @@ class Sql:
         # print sql except when...
         for dml in queries:
             if DEV:
-                print(it("yellow", f"'query': {dml['query']}"))
-                print(it("green", f"'values': {dml['values']}\n"))
+                print(
+                    it("yellow", f"'query': {dml['query']}"),
+                )
+                print(
+                    it("green", f"'values': {dml['values']}\n"),
+                )
         # attempt to update database until satisfied
         pause = -1
         curfetchall = None
@@ -463,7 +469,9 @@ class Sql:
                 return data
             except OperationalError:
                 if DEV:
-                    print(f"Race condition at {int(time.time())} during Sql.execute, pausing for {min(5, 1.01**pause - 1):2f} secs", )
+                    print(
+                        f"Race condition at {int(time.time())} during Sql.execute, pausing for {min(5, 1.01**pause - 1):2f} secs",
+                    )
                 # ascending pause here prevents excess cpu on corruption of database
                 # and allows for decreased load during race condition
                 time.sleep(min(5, 1.01**pause - 1))
@@ -474,14 +482,18 @@ def unit_test():
     """
     initialize the database
     """
-    print("\033c")
+    print(
+        "\033c",
+    )
     constants = GrapheneConstants()
     dispatch = {str(idx): chain for idx, chain in enumerate(constants.core.CHAINS)}
     for key, value in dispatch.items():
         if "testnet" not in value:
             print(key + ": " + it("blue", value))
         else:
-            print(key + ": " + it("purple", value))
+            print(
+                key + ": " + it("purple", value),
+            )
     chain = dispatch[input("Enter choice: ")]
     constants = GrapheneConstants(chain)
     sql = Sql(constants)
